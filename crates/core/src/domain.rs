@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 use std::fmt;
 
 // Unique Uuid's to enforce type safety and enable entities to reference each other.
-// This was done to avoid lifetime shinanigans, and for look up performance.
+// Relying on cross-referencing Uuid's to avoid lifetime shinanigans, and for look up performance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FileId(Uuid);
 
@@ -56,6 +56,7 @@ impl fmt::Display for FileListError {
 }
 
 impl std::error::Error for CodeBookError {}
+impl std::error::Error for FileListError {}
 
 
 /// Definition of a code used in a project
