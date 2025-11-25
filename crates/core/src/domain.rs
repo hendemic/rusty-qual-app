@@ -136,7 +136,7 @@ impl CodeBook {
 
 }
 
-
+//CodeDef methods
 impl CodeBook {
     pub fn create_code_def(&mut self, name: String, color: u8, theme_id: Option<ThemeId>) -> CodeDefId {
         let mut code_def = CodeDef::new(name, color);
@@ -187,6 +187,7 @@ impl CodeBook {
      }
 }
 
+//ThemeDef methods
 impl CodeBook {
     pub fn create_theme(&mut self, name: String, color: u8) -> ThemeId {
         let theme = ThemeDef::new(name, color);
@@ -257,6 +258,8 @@ impl CodeBook {
         self.themes.sort_by(|_, a, _, b| a.name().cmp(b.name()));
     }
 }
+
+//QualCode methods
 impl CodeBook {
     pub fn apply_code(&mut self, code_def_id: CodeDefId, file_id: FileId, position: (u64, u64), snippet: String) -> QualCodeId {
         let id = QualCodeId(Uuid::new_v4());
