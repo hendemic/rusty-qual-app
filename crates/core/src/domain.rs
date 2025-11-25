@@ -38,6 +38,8 @@ impl fmt::Display for CodeBookError {
     }
 }
 
+impl std::error::Error for CodeBookError {}
+
 #[derive(Debug)]
 pub enum FileListError {
     FileNotFound(FileId),
@@ -55,9 +57,54 @@ impl fmt::Display for FileListError {
     }
 }
 
-impl std::error::Error for CodeBookError {}
+
 impl std::error::Error for FileListError {}
 
+#[derive(Debug)]
+pub enum FileError {
+    Read(FileId),
+    Write(FileId),
+    Parse(FileId),
+    Encoding(FileId),
+    Unknown(FileId),
+}
+
+impl fmt::Display for FileError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            FileError::Read(id) => write!(f, "Failed to read file: {:?}", id),
+            FileError::Write(id) => write!(f, "Failed to write file: {:?}", id),
+            FileError::Parse(id) => write!(f, "Failed to parse file: {:?}", id),
+            FileError::Encoding(id) => write!(f, "Failed to encode file: {:?}", id),
+            FileError::Unknown(id) => write!(f, "Unknown error for file: {:?}", id),
+        }
+    }
+}
+
+impl std::error::Error for FileError {}
+
+
+pub struct Highlight {
+    file_id: FileId,
+    start: u64,
+    end: u64,
+}
+
+impl Highlight {
+    pub fn new(file_id: FileId, start: u64, end: u64) -> Self {
+        let (start, end) = if start > end { (end, start) } else { (start, end) };
+        Highlight { file_id, start, end }
+    }
+    pub fn len(&self) -> u64 {
+        self.end - self.start
+    }
+    pub fn is_empty(&self) -> bool {
+        self.start == self.end
+    }
+    pub fn file_id(&self) -> FileId { self.file_id }
+    pub fn start(&self) -> u64 { self.start }
+    pub fn end(&self) -> u64 { self.end }
+}
 
 /// Definition of a code used in a project
 pub struct CodeDef {
@@ -83,19 +130,18 @@ impl CodeDef {
 pub struct QualCode {
     pub id: QualCodeId,
     def_id: CodeDefId,
-    file_id: FileId,
-    position: (u64, u64),
+    highlight: Highlight,
     snippet: String,
 }
 
 impl QualCode {
     // Private so that CodeBook owns construction and maintains ownership
-    fn new(id: QualCodeId, def_id: CodeDefId, file_id: FileId, position: (u64, u64), snippet: String) -> Self {
-        QualCode { id, def_id, file_id, position, snippet }
+    fn new(id: QualCodeId, def_id: CodeDefId, highlight: Highlight, snippet: String) -> Self {
+        QualCode { id, def_id, highlight, snippet }
     }
     pub fn def_id(&self) -> CodeDefId { self.def_id }
-    pub fn file_id(&self) -> FileId { self.file_id }
-    pub fn position(&self) -> &(u64, u64) { &self.position }
+    pub fn file_id(&self) -> FileId { self.highlight.file_id() }
+    pub fn position(&self) -> (u64, u64) { (self.highlight.start(), self.highlight.end()) }
     pub fn snippet(&self) -> &str { &self.snippet }
 }
 
@@ -262,9 +308,9 @@ impl CodeBook {
 
 //QualCode methods
 impl CodeBook {
-    pub fn apply_code(&mut self, code_def_id: CodeDefId, file_id: FileId, position: (u64, u64), snippet: String) -> QualCodeId {
+    pub fn apply_code(&mut self, code_def_id: CodeDefId, highlight: Highlight, snippet: String) -> QualCodeId {
         let id = QualCodeId(Uuid::new_v4());
-        self.qual_codes.push(QualCode::new(id, code_def_id, file_id, position, snippet));
+        self.qual_codes.push(QualCode::new(id, code_def_id, highlight, snippet));
         id
     }
     pub fn remove_qual_code(&mut self, id: QualCodeId) -> Result<(), CodeBookError> {
@@ -275,10 +321,10 @@ impl CodeBook {
         Ok(())
     }
     pub fn get_codes_for_file(&self, file_id: FileId) -> impl Iterator<Item = &QualCode> {
-        self.qual_codes.iter().filter(move |qc| qc.file_id == file_id)
+        self.qual_codes.iter().filter(move |qc| qc.highlight.file_id() == file_id)
     }
     pub fn remove_codes_for_file(&mut self, file_id: FileId) {
-        self.qual_codes.retain(|qc| qc.file_id != file_id);
+        self.qual_codes.retain(|qc| qc.highlight.file_id() != file_id);
     }
     pub fn get_codes_for_def(&self, def_id: CodeDefId) -> impl Iterator<Item = &QualCode> {
         self.qual_codes.iter().filter(move |qc| qc.def_id == def_id)
@@ -297,23 +343,36 @@ pub enum FileType {
     RichText,
 }
 
+pub enum DataState<T> {
+    Empty,
+    Loaded(T),
+    Modified(T),
+    Error(T),
+}
+
 ///File and its data and metadata
 pub struct QualFile {
     pub id: FileId,
     path: String,
-    data: String,
+    data_state: DataState<String>,
     file_type: FileType,
 }
 
 impl QualFile {
     //Private new function
-    fn new(path: String, text: String, file_type: FileType) -> Self {
+    fn new(path: String, file_type: FileType) -> Self {
         let id = FileId(Uuid::new_v4());
-        QualFile { id, path, data: text, file_type }
+        QualFile { id, path, data_state: DataState::Empty, file_type }
     }
 
     pub fn path(&self) -> &str { &self.path }
-    pub fn data(&self) -> &str { &self.data }
+    pub fn load_data(&mut self, data_state: DataState<String>) { self.data_state = data_state; }
+    pub fn data(&self) -> Option<&str> {
+        match &self.data_state {
+            DataState::Loaded(content) | DataState::Modified(content) => Some(content),
+            DataState::Empty | DataState::Error(_) => None,
+        }
+    }
     pub fn file_type(&self) -> &FileType { &self.file_type }
 }
 
@@ -326,8 +385,8 @@ impl FileList {
     pub fn new() -> Self {
         FileList { files: IndexMap::new() }
     }
-    pub fn add_file(&mut self, path: String, text: String, file_type: FileType) -> FileId {
-        let file = QualFile::new(path, text, file_type);
+    pub fn add_file(&mut self, path: String, file_type: FileType) -> FileId {
+        let file = QualFile::new(path, file_type);
         let id = file.id;
         self.files.insert(id, file);
         id

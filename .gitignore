@@ -1,3 +1,4 @@
+/working-notes
 /target
 **/*.rs.bk
 valgrind.*

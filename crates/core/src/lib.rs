@@ -1,5 +1,5 @@
-mod domain;
-
+pub mod domain;
+mod logic;
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
