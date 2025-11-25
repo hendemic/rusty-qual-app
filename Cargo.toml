@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+
+members = [
+    "crates/*"
+]
+
+[workspace.dependencies]
+uuid = "1.18.1"
+indexmap = "2.12.1"
