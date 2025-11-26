@@ -3,20 +3,25 @@ use uuid::Uuid;
 use indexmap::IndexMap;
 use std::fmt;
 use std::path::{PathBuf};
+use serde::{Serialize, Deserialize};
+use chrono::{DateTime, Utc};
 
 // Unique Uuid's to enforce type safety and enable entities to reference each other.
 // Cross-referencing Uuid's vs embedding object references to avoid lifetime shinanigans, and for look up performance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FileId(Uuid);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CodeDefId(Uuid);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct QualCodeId(Uuid);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ThemeId(Uuid);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct BlockId(Uuid);
 
 #[derive(Debug)]
 pub enum ProjectError {
@@ -107,7 +112,7 @@ impl fmt::Display for FileError {
 
 impl std::error::Error for FileError {}
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DataState<T> {
     Empty,
     Loaded(T),
@@ -117,17 +122,25 @@ pub enum DataState<T> {
 
 
 ///Highest level project construct
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QualProject {
     name: String,
     author: Option<String>,
     description: Option<String>,
     schema_version: u32,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
 }
 
 impl QualProject {
-    pub fn new(name: String, author: Option<String>, description: Option<String>, schema_version: u32) -> Self {
-        Self { name, author, description, schema_version }
+    pub fn new(name: String,
+        author: Option<String>,
+        description: Option<String>,
+        schema_version: u32,
+        created_at: DateTime<Utc>,
+        updated_at: DateTime<Utc>
+    ) -> Self {
+        Self { name, author, description, schema_version, created_at, updated_at }
     }
     pub fn name(&self) -> &str { &self.name }
     pub fn author(&self) -> Option<&str> { self.author.as_deref() }
@@ -137,17 +150,17 @@ impl QualProject {
 
 ///Passed from front end into QualCode when generated
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Highlight {
-    file_id: FileId,
+    block_id: BlockId,
     start: u64,
     end: u64,
 }
 
 impl Highlight {
-    pub fn new(file_id: FileId, start: u64, end: u64) -> Self {
+    pub fn new(block_id: BlockId, start: u64, end: u64) -> Self {
         let (start, end) = if start > end { (end, start) } else { (start, end) };
-        Highlight { file_id, start, end }
+        Highlight { block_id, start, end }
     }
     pub fn len(&self) -> u64 {
         self.end - self.start
@@ -155,14 +168,14 @@ impl Highlight {
     pub fn is_empty(&self) -> bool {
         self.start == self.end
     }
-    pub fn file_id(&self) -> FileId { self.file_id }
+    pub fn block_id(&self) -> BlockId { self.block_id }
     pub fn start(&self) -> u64 { self.start }
     pub fn end(&self) -> u64 { self.end }
 }
 
 /// Definition of a code used in a project
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeDef {
     pub id: CodeDefId,
     name: String,
@@ -183,28 +196,30 @@ impl CodeDef {
 }
 
 /// Highlighted instance of a Code in a given file.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QualCode {
     pub id: QualCodeId,
     def_id: CodeDefId,
     highlight: Highlight,
     snippet: String,
+    context_before: String,
+    context_after: String,
 }
 
 impl QualCode {
     // Private so that CodeBook owns construction and maintains ownership
-    fn new(def_id: CodeDefId, highlight: Highlight, snippet: String) -> Self {
+    fn new(def_id: CodeDefId, highlight: Highlight, snippet: String, context_before: String, context_after: String) -> Self {
         let id = QualCodeId(Uuid::new_v4());
-        QualCode { id, def_id, highlight, snippet }
+        QualCode { id, def_id, highlight, snippet, context_before, context_after }
     }
     pub fn def_id(&self) -> CodeDefId { self.def_id }
-    pub fn file_id(&self) -> FileId { self.highlight.file_id() }
+    pub fn block_id(&self) -> BlockId { self.highlight.block_id() }
     pub fn position(&self) -> (u64, u64) { (self.highlight.start(), self.highlight.end()) }
     pub fn snippet(&self) -> &str { &self.snippet }
 }
 
 /// Collection of CodeDefs associated with a theme
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThemeDef {
     pub id: ThemeId,
     name: String,
@@ -224,7 +239,7 @@ impl ThemeDef {
 /// Codebook containing all code definitions themes, and vector of all QualCodes.
 /// This struct is the core application state
 /// This is used by application to create new codes, themes, and apply theme to text snippets in files.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeBook {
     code_defs: IndexMap<CodeDefId, CodeDef>,
     themes: IndexMap<ThemeId, ThemeDef>,
@@ -368,11 +383,18 @@ impl CodeBook {
 
 //QualCode methods
 impl CodeBook {
-    pub fn apply_code(&mut self, code_def_id: CodeDefId, highlight: Highlight, snippet: String) -> QualCodeId {
-        let qual_code = QualCode::new(code_def_id, highlight, snippet);
-        let id = qual_code.id;
-        self.qual_codes.push(qual_code);
-        id
+    pub fn apply_code(
+        &mut self,
+        code_def_id: CodeDefId,
+        highlight: Highlight,
+        snippet: String,
+        context_before: String,
+        context_after: String
+    ) -> QualCodeId {
+            let qual_code = QualCode::new(code_def_id, highlight, snippet, context_before, context_after);
+            let id = qual_code.id;
+            self.qual_codes.push(qual_code);
+            id
     }
     pub fn remove_qual_code(&mut self, id: QualCodeId) -> Result<(), CodeBookError> {
         let pos = self.qual_codes.iter().position(|qc| qc.id == id)
@@ -381,11 +403,23 @@ impl CodeBook {
         self.qual_codes.remove(pos);
         Ok(())
     }
-    pub fn get_codes_for_file(&self, file_id: FileId) -> impl Iterator<Item = &QualCode> {
-        self.qual_codes.iter().filter(move |qc| qc.highlight.file_id() == file_id)
+    pub fn get_codes_for_file(
+        &self,
+        file_id: FileId,
+        block_file_map: &std::collections::HashMap<BlockId, FileId>,
+    ) -> impl Iterator<Item = &QualCode> {
+        self.qual_codes.iter().filter(move |qc| {
+            block_file_map.get(&qc.highlight.block_id()).map_or(false, |&fid| fid == file_id)
+        })
     }
-    pub fn remove_codes_for_file(&mut self, file_id: FileId) {
-        self.qual_codes.retain(|qc| qc.highlight.file_id() != file_id);
+    pub fn remove_codes_for_file(
+        &mut self,
+        file_id: FileId,
+        block_file_map: &std::collections::HashMap<BlockId, FileId>,
+    ) {
+        self.qual_codes.retain(|qc| {
+            block_file_map.get(&qc.highlight.block_id()).map_or(true, |&fid| fid != file_id)
+        });
     }
     pub fn get_codes_for_def(&self, def_id: CodeDefId) -> impl Iterator<Item = &QualCode> {
         self.qual_codes.iter().filter(move |qc| qc.def_id == def_id)
@@ -396,7 +430,9 @@ impl CodeBook {
     }
 }
 
-#[derive(Debug, Clone)]
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum FileType {
     Pdf,
     PlainText,
@@ -405,19 +441,39 @@ pub enum FileType {
     Other,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextBlock {
+    pub id: BlockId,
+    pub file_id: FileId,
+    pub sequence: usize,
+    pub content: String,
+}
+
+impl TextBlock {
+    pub fn new(file_id: FileId, sequence: usize, content: String) -> Self {
+        Self {
+            id: BlockId(Uuid::new_v4()),
+            file_id,
+            sequence,
+            content,
+        }
+    }
+}
+
 ///File and its data and metadata
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QualFile {
     pub id: FileId,
     path: String,
     data_state: DataState<String>,
     file_type: FileType,
+    blocks: Vec<TextBlock>,
 }
 
 impl QualFile {
     fn new(path: String, file_type: FileType) -> Self {
         let id = FileId(Uuid::new_v4());
-        QualFile { id, path, data_state: DataState::Empty, file_type }
+        QualFile { id, path, data_state: DataState::Empty, file_type, blocks: Vec::new() }
     }
 
     pub fn path(&self) -> &str { &self.path }
@@ -433,7 +489,7 @@ impl QualFile {
 }
 
 ///Collection of files. Manages File addition, removal, retrieval, and ordering
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileList {
     files: IndexMap<FileId, QualFile>,
 }
@@ -485,3 +541,7 @@ impl FileList {
     }
     pub fn file_count(&self) -> usize { self.files.len() }
 }
+
+
+// ======Unit Tests=======
+//
