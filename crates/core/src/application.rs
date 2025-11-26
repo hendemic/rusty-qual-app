@@ -124,7 +124,9 @@ where
             ProjectAction::SaveProject => {
                 match &self.project {
                     DataState::Loaded(proj) | DataState::Modified(proj) => {
-                        match self.project_repo.save_project(&proj.path, proj.project.clone(), &self.codebook, &self.filemanager).await {
+                        //project, codebook, and filemanager are cloned to pass a snapshot to infra to save
+                        //app should maintain ownership of these, esp with this occuring async
+                        match self.project_repo.save_project(&proj.path, proj.project.clone(), self.codebook.clone(), self.filemanager.clone()).await {
                             Ok(_) => Ok(ActionResult::Success),
                             Err(e) => Err(e.into())
                         }

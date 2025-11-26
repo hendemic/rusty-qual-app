@@ -13,7 +13,7 @@ pub trait ProjectRepository {
         codebook: &CodeBook,
         files: &FileList
     ) -> Result<QualProject, ProjectError>;
-    async fn save_project(&self, path: &Path, project: QualProject, codebook: &CodeBook, files: &FileList) -> Result<(), ProjectError>;
+    async fn save_project(&self, path: &Path, project: QualProject, codebook: CodeBook, files: FileList) -> Result<(), ProjectError>;
     async fn load_project(&self, path: &Path) -> Result<(QualProject, CodeBook, FileList), ProjectError>;
 }
 

@@ -135,6 +135,8 @@ impl QualProject {
 }
 
 ///Passed from front end into QualCode when generated
+
+#[derive(Debug, Clone)]
 pub struct Highlight {
     file_id: FileId,
     start: u64,
@@ -158,6 +160,8 @@ impl Highlight {
 }
 
 /// Definition of a code used in a project
+
+#[derive(Debug, Clone)]
 pub struct CodeDef {
     pub id: CodeDefId,
     name: String,
@@ -178,6 +182,7 @@ impl CodeDef {
 }
 
 /// Highlighted instance of a Code in a given file.
+#[derive(Debug, Clone)]
 pub struct QualCode {
     pub id: QualCodeId,
     def_id: CodeDefId,
@@ -198,6 +203,7 @@ impl QualCode {
 }
 
 /// Collection of CodeDefs associated with a theme
+#[derive(Debug, Clone)]
 pub struct ThemeDef {
     pub id: ThemeId,
     name: String,
@@ -217,6 +223,7 @@ impl ThemeDef {
 /// Codebook containing all code definitions themes, and vector of all QualCodes.
 /// This struct is the core application state
 /// This is used by application to create new codes, themes, and apply theme to text snippets in files.
+#[derive(Debug, Clone)]
 pub struct CodeBook {
     code_defs: IndexMap<CodeDefId, CodeDef>,
     themes: IndexMap<ThemeId, ThemeDef>,
@@ -397,6 +404,7 @@ pub enum FileType {
 }
 
 ///File and its data and metadata
+#[derive(Debug, Clone)]
 pub struct QualFile {
     pub id: FileId,
     path: String,
@@ -423,6 +431,7 @@ impl QualFile {
 }
 
 ///Collection of files. Manages File addition, removal, retrieval, and ordering
+#[derive(Debug, Clone)]
 pub struct FileList {
     files: IndexMap<FileId, QualFile>,
 }
