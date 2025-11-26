@@ -86,32 +86,32 @@ impl std::error::Error for FileListError {}
 
 #[derive(Debug)]
 pub enum FileError {
-    Read(FileId),
-    Write(FileId),
-    Parse(FileId),
-    Encoding(FileId),
-    Unknown(FileId),
+    Read(String),
+    Write(String),
+    Parse(String),
+    Encoding(String),
+    Unknown(String),
 }
 
 impl fmt::Display for FileError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            FileError::Read(id) => write!(f, "Failed to read file: {:?}", id),
-            FileError::Write(id) => write!(f, "Failed to write file: {:?}", id),
-            FileError::Parse(id) => write!(f, "Failed to parse file: {:?}", id),
-            FileError::Encoding(id) => write!(f, "Failed to encode file: {:?}", id),
-            FileError::Unknown(id) => write!(f, "Unknown error for file: {:?}", id),
+            FileError::Read(reference) => write!(f, "Failed to read file: {:?}", reference),
+            FileError::Write(reference) => write!(f, "Failed to write file: {:?}", reference),
+            FileError::Parse(reference) => write!(f, "Failed to parse file: {:?}", reference),
+            FileError::Encoding(reference) => write!(f, "Failed to encode file: {:?}", reference),
+            FileError::Unknown(reference) => write!(f, "Unknown error for file: {:?}", reference),
         }
     }
 }
 
 impl std::error::Error for FileError {}
 
-pub enum DataState<T, E> {
+pub enum DataState<T> {
     Empty,
     Loaded(T),
     Modified(T),
-    Error(E),
+    Error,
 }
 
 
@@ -400,12 +400,11 @@ pub enum FileType {
 pub struct QualFile {
     pub id: FileId,
     path: String,
-    data_state: DataState<String, FileError>,
+    data_state: DataState<String>,
     file_type: FileType,
 }
 
 impl QualFile {
-    //Private new function
     fn new(path: String, file_type: FileType) -> Self {
         let id = FileId(Uuid::new_v4());
         QualFile { id, path, data_state: DataState::Empty, file_type }
@@ -413,11 +412,11 @@ impl QualFile {
 
     pub fn path(&self) -> &str { &self.path }
     pub fn path_buf(&self) -> PathBuf { PathBuf::from(&self.path) }
-    pub fn set_data_state(&mut self, data_state: DataState<String, FileError>) { self.data_state = data_state; }
+    pub fn set_data_state(&mut self, data_state: DataState<String>) { self.data_state = data_state; }
     pub fn data(&self) -> Option<&str> {
         match &self.data_state {
             DataState::Loaded(content) | DataState::Modified(content) => Some(content),
-            DataState::Empty | DataState::Error(_) => None,
+            DataState::Empty | DataState::Error => None,
         }
     }
     pub fn file_type(&self) -> &FileType { &self.file_type }

@@ -12,9 +12,9 @@ pub trait ProjectRepository {
         name: String,
         codebook: &CodeBook,
         files: &FileList
-    ) -> Result<QualProject>;
-    async fn save_project(&self, path: &Path, project: QualProject, codebook: &CodeBook, files: &FileList) -> Result<()>;
-    async fn load_project(&self, path: &Path) -> Result<(QualProject, CodeBook, FileList)>;
+    ) -> Result<QualProject, ProjectError>;
+    async fn save_project(&self, path: &Path, project: QualProject, codebook: &CodeBook, files: &FileList) -> Result<(), ProjectError>;
+    async fn load_project(&self, path: &Path) -> Result<(QualProject, CodeBook, FileList), ProjectError>;
 }
 
 #[async_trait]

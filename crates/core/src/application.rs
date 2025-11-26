@@ -37,7 +37,7 @@ impl ProjectContext {
 
 ///Handles all app actions and sends app commands to DB through defined interface
 pub struct AppService<P: ProjectRepository, F: FileLoader, C: ConfigStore> {
-    project: DataState<ProjectContext, ProjectError>,
+    project: DataState<ProjectContext>,
     codebook: CodeBook,
     filemanager: FileList,
     config: AppConfig,
@@ -93,17 +93,40 @@ where
                         Ok(ActionResult::Success)
                     }
                     Err(e) => {
-                        self.project = DataState::Error(ProjectError::New);
-                        Err(e)
+                        if let DataState::Empty = self.project {
+                            self.project = DataState::Error;
+                        }
+                        Err(e.into())
                     }
                 }
             }
-
             ProjectAction::LoadProject(path) => {
-                todo!("build out loading")
+                match self.project_repo.load_project(&path).await {
+                    Ok((project, codebook, filemanager)) => {
+                        let ctx = ProjectContext::new(path, project);
+                        self.project = DataState::Loaded(ctx);
+                        self.codebook = codebook;
+                        self.filemanager = filemanager;
+                        Ok(ActionResult::Success)
+                    }
+                    Err(e) => {
+                        if let DataState::Empty = self.project {
+                            self.project = DataState::Error;
+                        }
+                        Err(e.into())
+                    }
+                }
             }
             ProjectAction::SaveProject => {
-                todo!("build out saving")
+                match &self.project {
+                    DataState::Loaded(proj) | DataState::Modified(proj) => {
+                        match self.project_repo.save_project(&proj.path, proj.project.clone(), &self.codebook, &self.filemanager).await {
+                            Ok(_) => Ok(ActionResult::Success),
+                            Err(e) => Err(e.into())
+                        }
+                    }
+                    _ => Err(ProjectError::Save("No project loaded".to_string()).into())
+                }
             }
         }
     }
