@@ -3,10 +3,7 @@
 
     //define actions
     pub enum Action {
-        //system
         Quit,
-
-        //domain actions
         Project(ProjectAction),
         File(FileAction),
         Schema(SchemaAction),
