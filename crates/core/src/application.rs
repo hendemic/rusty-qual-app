@@ -72,9 +72,7 @@ where
         })
     }
 
-    // TODO: Look into async for handle_action, which could freeze the UI
-    // Its much more a technical lift, but all of the core application should be async
-    // once a proof of concept is together.
+
     pub async fn handle_action(&mut self, action: Action) -> Result<ActionResult> {
         match action {
             Action::Project(a) => self.handle_project_action(a).await,
@@ -85,7 +83,6 @@ where
         }
     }
 
-    //TODO: make this async
     async fn handle_project_action(&mut self, action: ProjectAction) -> Result<ActionResult> {
         match action {
             ProjectAction::NewProject { path, name } => {
