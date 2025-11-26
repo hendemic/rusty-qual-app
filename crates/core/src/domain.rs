@@ -5,7 +5,7 @@ use std::fmt;
 use std::path::{PathBuf};
 
 // Unique Uuid's to enforce type safety and enable entities to reference each other.
-// Relying on cross-referencing Uuid's to avoid lifetime shinanigans, and for look up performance.
+// Cross-referencing Uuid's vs embedding object references to avoid lifetime shinanigans, and for look up performance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FileId(Uuid);
 
@@ -114,6 +114,8 @@ pub enum DataState<T, E> {
     Error(E),
 }
 
+
+///Highest level project construct
 #[derive(Debug, Clone)]
 pub struct QualProject {
     name: String,
@@ -132,6 +134,7 @@ impl QualProject {
     pub fn schema_version(&self) -> u32 { self.schema_version }
 }
 
+///Passed from front end into QualCode when generated
 pub struct Highlight {
     file_id: FileId,
     start: u64,
