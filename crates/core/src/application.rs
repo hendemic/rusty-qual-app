@@ -27,16 +27,12 @@ pub struct ProjectContext {
 }
 
 impl ProjectContext {
-    pub fn new(path: PathBuf, project: QualProject) -> Result<Self> {
+    pub fn new(path: PathBuf, project: QualProject) -> Self {
         let root = path.parent()
-            .ok_or(anyhow::anyhow!("Project path must have parent directory"))?
+            .expect("Project path must have parent")
             .to_path_buf();
 
-        Ok(ProjectContext {
-            project,
-            path,
-            root,
-        })
+        ProjectContext { project, path, root }
     }
 }
 
@@ -90,7 +86,7 @@ where
             ProjectAction::NewProject { path, name } => {
                 match self.project_repo.new_project(&path, name, &self.codebook, &self.filemanager) {
                     Ok(project) => {
-                        let ctx = ProjectContext::new(path, project)?;
+                        let ctx = ProjectContext::new(path, project);
                         self.project = DataState::Loaded(ctx);
                         Ok(ActionResult::Success)
                     }
