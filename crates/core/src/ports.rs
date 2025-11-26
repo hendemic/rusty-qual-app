@@ -2,26 +2,30 @@ use crate::domain::*;
 use crate::application::*;
 use std::path::Path;
 use anyhow::Result;
+use async_trait::async_trait;
 
+#[async_trait]
 pub trait ProjectRepository {
-    fn new_project(
+    async fn new_project(
         &self,
         path: &Path,
         name: String,
         codebook: &CodeBook,
         files: &FileList
     ) -> Result<QualProject>;
-    fn save_project(&self, path: &Path, project: QualProject, codebook: &CodeBook, files: &FileList) -> Result<()>;
-    fn load_project(&self, path: &Path) -> Result<(QualProject, CodeBook, FileList)>;
+    async fn save_project(&self, path: &Path, project: QualProject, codebook: &CodeBook, files: &FileList) -> Result<()>;
+    async fn load_project(&self, path: &Path) -> Result<(QualProject, CodeBook, FileList)>;
 }
 
+#[async_trait]
 pub trait FileLoader {
-    fn load_file(&self, path: &Path) -> Result<(String, FileType)>;
-    fn load_file_metadata(&self, path: &Path) -> Result<FileType>;
+    async fn load_file(&self, path: &Path) -> Result<(String, FileType)>;
+    async fn load_file_metadata(&self, path: &Path) -> Result<FileType>;
 }
 
+#[async_trait]
 pub trait ConfigStore {
-    fn load_config(&self) -> Result<AppConfig>;
-    fn save_config(&self) -> Result<()>;
-    fn config_exists(&self) -> bool;
+    async fn load_config(&self) -> Result<AppConfig>;
+    async fn save_config(&self) -> Result<()>;
+    async fn config_exists(&self) -> bool;
 }

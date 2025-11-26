@@ -9,3 +9,5 @@ members = [
 uuid = "1.18.1"
 indexmap = "2.12.1"
 anyhow = "1.0.100"
+tokio = "1.48.0"
+async-trait = "0.1.89"

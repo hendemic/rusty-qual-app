@@ -7,7 +7,6 @@ use std::path::{ PathBuf };
 use anyhow::Result;
 
 
-
 pub struct AppConfig {
     pub theme: String,
 }
@@ -55,10 +54,12 @@ where
     F: FileLoader,
     C: ConfigStore,
 {
-    pub fn new(project_repo: P, file_loader: F, config_store: C) -> Result<Self> {
+    pub async fn new(project_repo: P, file_loader: F, config_store: C) -> Result<Self> {
         let codebook = CodeBook::new();
         let filemanager = FileList::new();
-        let config = config_store.load_config().unwrap_or_default();
+        let config = config_store.load_config()
+            .await
+            .unwrap_or_default() ;
 
         Ok(Self {
             project: DataState::Empty,
@@ -72,22 +73,23 @@ where
     }
 
     // TODO: Look into async for handle_action, which could freeze the UI
-    // In general, its much more a technical lift, but all of the core application should be async
+    // Its much more a technical lift, but all of the core application should be async
     // once a proof of concept is together.
-    pub fn handle_action(&mut self, action: Action) -> Result<ActionResult> {
+    pub async fn handle_action(&mut self, action: Action) -> Result<ActionResult> {
         match action {
-            Action::Project(a) => self.handle_project_action(a),
-            Action::File(a) => self.handle_file_action(a),
+            Action::Project(a) => self.handle_project_action(a).await,
+            Action::File(a) => self.handle_file_action(a).await,
             Action::Schema(a) => self.handle_schema_action(a),
             Action::Coding(a) => self.handle_coding_action(a),
             Action::Quit => Ok(ActionResult::Quit),
         }
     }
 
-    fn handle_project_action(&mut self, action: ProjectAction) -> Result<ActionResult> {
+    //TODO: make this async
+    async fn handle_project_action(&mut self, action: ProjectAction) -> Result<ActionResult> {
         match action {
             ProjectAction::NewProject { path, name } => {
-                match self.project_repo.new_project(&path, name, &self.codebook, &self.filemanager) {
+                match self.project_repo.new_project(&path, name, &self.codebook, &self.filemanager).await {
                     Ok(project) => {
                         let ctx = ProjectContext::new(path, project);
                         self.project = DataState::Loaded(ctx);
@@ -108,7 +110,8 @@ where
             }
         }
     }
-    fn handle_file_action(&mut self, action: FileAction) -> Result<ActionResult> {
+
+    async fn handle_file_action(&mut self, action: FileAction) -> Result<ActionResult> {
         match action {
             FileAction::AddFile(path) => {
                 todo!("build out filing adding")
