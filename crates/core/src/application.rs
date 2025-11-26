@@ -71,6 +71,9 @@ where
         })
     }
 
+    // TODO: Look into async for handle_action, which could freeze the UI
+    // In general, its much more a technical lift, but all of the core application should be async
+    // once a proof of concept is together.
     pub fn handle_action(&mut self, action: Action) -> Result<ActionResult> {
         match action {
             Action::Project(a) => self.handle_project_action(a),
