@@ -20,19 +20,19 @@ impl Default for AppConfig {
     }
 }
 
-pub struct LoadedProject {
+pub struct ProjectContext {
     project: QualProject,
     path: PathBuf,
     root: PathBuf
 }
 
-impl LoadedProject {
+impl ProjectContext {
     pub fn new(path: PathBuf, project: QualProject) -> Result<Self> {
         let root = path.parent()
             .ok_or(anyhow::anyhow!("Project path must have parent directory"))?
             .to_path_buf();
 
-        Ok(LoadedProject {
+        Ok(ProjectContext {
             project,
             path,
             root,
@@ -42,7 +42,7 @@ impl LoadedProject {
 
 ///Handles all app actions and sends app commands to DB through defined interface
 pub struct AppService<P: ProjectRepository, F: FileLoader, C: ConfigStore> {
-    project: DataState<LoadedProject, ProjectError>,
+    project: DataState<ProjectContext, ProjectError>,
     codebook: CodeBook,
     filemanager: FileList,
     config: AppConfig,
@@ -88,9 +88,17 @@ where
     fn handle_project_action(&mut self, action: ProjectAction) -> Result<ActionResult> {
         match action {
             ProjectAction::NewProject { path, name } => {
-                let project = self.project_repo.new_project(&path, name, &self.codebook, &self.filemanager)?;
-                self.project = DataState::Loaded(LoadedProject::new(path, project)?);
-                Ok(ActionResult::Success)
+                match self.project_repo.new_project(&path, name, &self.codebook, &self.filemanager) {
+                    Ok(project) => {
+                        let ctx = ProjectContext::new(path, project)?;
+                        self.project = DataState::Loaded(ctx);
+                        Ok(ActionResult::Success)
+                    }
+                    Err(e) => {
+                        self.project = DataState::Error(ProjectError::New);
+                        Err(e)
+                    }
+                }
             }
 
             ProjectAction::LoadProject(path) => {
