@@ -2,6 +2,7 @@
 use uuid::Uuid;
 use indexmap::IndexMap;
 use std::fmt;
+use std::path::{PathBuf};
 
 // Unique Uuid's to enforce type safety and enable entities to reference each other.
 // Relying on cross-referencing Uuid's to avoid lifetime shinanigans, and for look up performance.
@@ -16,6 +17,29 @@ pub struct QualCodeId(Uuid);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ThemeId(Uuid);
+
+#[derive(Debug)]
+pub enum ProjectError {
+    New,
+    Save(String),
+    Load(String),
+    InvalidFormat(String),
+    Corrupted(String),
+}
+
+impl fmt::Display for ProjectError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ProjectError::New => write!(f, "Unable to create new project. Check permissions."),
+            ProjectError::Save(name) => write!(f, "Failed to save project: {:?}", name),
+            ProjectError::Load(name) => write!(f, "Failed to load project: {:?}", name),
+            ProjectError::InvalidFormat(name) => write!(f, "Invalid format for project: {:?}", name),
+            ProjectError::Corrupted(name) => write!(f, "Corrupted project: {:?}", name),
+        }
+    }
+}
+
+impl std::error::Error for ProjectError {}
 
 #[derive(Debug)]
 pub enum CodeBookError {
@@ -83,6 +107,30 @@ impl fmt::Display for FileError {
 
 impl std::error::Error for FileError {}
 
+pub enum DataState<T, E> {
+    Empty,
+    Loaded(T),
+    Modified(T),
+    Error(E),
+}
+
+#[derive(Debug, Clone)]
+pub struct QualProject {
+    name: String,
+    author: Option<String>,
+    description: Option<String>,
+    schema_version: u32,
+}
+
+impl QualProject {
+    pub fn new(name: String, author: Option<String>, description: Option<String>, schema_version: u32) -> Self {
+        Self { name, author, description, schema_version }
+    }
+    pub fn name(&self) -> &str { &self.name }
+    pub fn author(&self) -> Option<&str> { self.author.as_deref() }
+    pub fn description(&self) -> Option<&str> { self.description.as_deref() }
+    pub fn schema_version(&self) -> u32 { self.schema_version }
+}
 
 pub struct Highlight {
     file_id: FileId,
@@ -136,7 +184,8 @@ pub struct QualCode {
 
 impl QualCode {
     // Private so that CodeBook owns construction and maintains ownership
-    fn new(id: QualCodeId, def_id: CodeDefId, highlight: Highlight, snippet: String) -> Self {
+    fn new(def_id: CodeDefId, highlight: Highlight, snippet: String) -> Self {
+        let id = QualCodeId(Uuid::new_v4());
         QualCode { id, def_id, highlight, snippet }
     }
     pub fn def_id(&self) -> CodeDefId { self.def_id }
@@ -309,8 +358,9 @@ impl CodeBook {
 //QualCode methods
 impl CodeBook {
     pub fn apply_code(&mut self, code_def_id: CodeDefId, highlight: Highlight, snippet: String) -> QualCodeId {
-        let id = QualCodeId(Uuid::new_v4());
-        self.qual_codes.push(QualCode::new(id, code_def_id, highlight, snippet));
+        let qual_code = QualCode::new(code_def_id, highlight, snippet);
+        let id = qual_code.id;
+        self.qual_codes.push(qual_code);
         id
     }
     pub fn remove_qual_code(&mut self, id: QualCodeId) -> Result<(), CodeBookError> {
@@ -335,26 +385,19 @@ impl CodeBook {
     }
 }
 
-
 pub enum FileType {
     Pdf,
     PlainText,
     Markdown,
     RichText,
-}
-
-pub enum DataState<T> {
-    Empty,
-    Loaded(T),
-    Modified(T),
-    Error(T),
+    Other,
 }
 
 ///File and its data and metadata
 pub struct QualFile {
     pub id: FileId,
     path: String,
-    data_state: DataState<String>,
+    data_state: DataState<String, FileError>,
     file_type: FileType,
 }
 
@@ -366,7 +409,8 @@ impl QualFile {
     }
 
     pub fn path(&self) -> &str { &self.path }
-    pub fn load_data(&mut self, data_state: DataState<String>) { self.data_state = data_state; }
+    pub fn path_buf(&self) -> PathBuf { PathBuf::from(&self.path) }
+    pub fn set_data_state(&mut self, data_state: DataState<String, FileError>) { self.data_state = data_state; }
     pub fn data(&self) -> Option<&str> {
         match &self.data_state {
             DataState::Loaded(content) | DataState::Modified(content) => Some(content),

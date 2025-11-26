@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 indexmap = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
+anyhow = { workspace = true }
