@@ -153,24 +153,24 @@ impl QualProject {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Highlight {
     block_id: BlockId,
-    start: u64,
-    end: u64,
+    start: usize,
+    end: usize,
 }
 
 impl Highlight {
-    pub fn new(block_id: BlockId, start: u64, end: u64) -> Self {
+    pub fn new(block_id: BlockId, start: usize, end: usize) -> Self {
         let (start, end) = if start > end { (end, start) } else { (start, end) };
         Highlight { block_id, start, end }
     }
-    pub fn len(&self) -> u64 {
+    pub fn len(&self) -> usize {
         self.end - self.start
     }
     pub fn is_empty(&self) -> bool {
         self.start == self.end
     }
     pub fn block_id(&self) -> BlockId { self.block_id }
-    pub fn start(&self) -> u64 { self.start }
-    pub fn end(&self) -> u64 { self.end }
+    pub fn start(&self) -> usize { self.start }
+    pub fn end(&self) -> usize { self.end }
 }
 
 /// Definition of a code used in a project
@@ -214,7 +214,7 @@ impl QualCode {
     }
     pub fn def_id(&self) -> CodeDefId { self.def_id }
     pub fn block_id(&self) -> BlockId { self.highlight.block_id() }
-    pub fn position(&self) -> (u64, u64) { (self.highlight.start(), self.highlight.end()) }
+    pub fn position(&self) -> (usize, usize) { (self.highlight.start(), self.highlight.end()) }
     pub fn snippet(&self) -> &str { &self.snippet }
 }
 
@@ -465,27 +465,25 @@ impl TextBlock {
 pub struct QualFile {
     pub id: FileId,
     path: String,
-    data_state: DataState<String>,
+    data_state: DataState<Vec<TextBlock>>,
     file_type: FileType,
-    blocks: Vec<TextBlock>,
 }
 
 impl QualFile {
     fn new(path: String, file_type: FileType) -> Self {
         let id = FileId(Uuid::new_v4());
-        QualFile { id, path, data_state: DataState::Empty, file_type, blocks: Vec::new() }
+        QualFile { id, path, data_state: DataState::Empty, file_type }
     }
 
     pub fn path(&self) -> &str { &self.path }
     pub fn path_buf(&self) -> PathBuf { PathBuf::from(&self.path) }
-    pub fn set_data_state(&mut self, data_state: DataState<String>) { self.data_state = data_state; }
-    pub fn data(&self) -> Option<&str> {
+    pub fn set_data_state(&mut self, data_state: DataState<Vec<TextBlock>>) { self.data_state = data_state; }
+    pub fn blocks(&self) -> Option<&[TextBlock]> {
         match &self.data_state {
-            DataState::Loaded(content) | DataState::Modified(content) => Some(content),
+            DataState::Loaded(blocks) | DataState::Modified(blocks) => Some(blocks),
             DataState::Empty | DataState::Error => None,
         }
     }
-    pub fn file_type(&self) -> &FileType { &self.file_type }
 }
 
 ///Collection of files. Manages File addition, removal, retrieval, and ordering
@@ -510,6 +508,7 @@ impl FileList {
         Ok(())
     }
     pub fn file(&self, id: FileId) -> Option<&QualFile> { self.files.get(&id) }
+    pub fn file_mut(&mut self, id: FileId) -> Option<&mut QualFile> { self.files.get_mut(&id) }
     pub fn get_all_files(&self) -> impl Iterator<Item = &QualFile> { self.files.values() }
     pub fn move_file_to_index(&mut self, id: FileId, new_index: usize) -> Result<(), FileListError> {
         let current_index = self.files.get_index_of(&id)
@@ -543,5 +542,5 @@ impl FileList {
 }
 
 
-// ======Unit Tests=======
-//
+#[cfg(test)]
+mod tests;
