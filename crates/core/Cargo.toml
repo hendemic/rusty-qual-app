@@ -9,3 +9,4 @@ uuid = { workspace = true, features = ["v4"] }
 anyhow = { workspace = true }
 tokio = { workspace = true, features = ["fs", "io-util"] }
 async-trait = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
