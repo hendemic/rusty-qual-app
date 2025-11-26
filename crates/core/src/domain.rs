@@ -107,6 +107,7 @@ impl fmt::Display for FileError {
 
 impl std::error::Error for FileError {}
 
+#[derive(Debug, Clone)]
 pub enum DataState<T> {
     Empty,
     Loaded(T),
@@ -395,6 +396,7 @@ impl CodeBook {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum FileType {
     Pdf,
     PlainText,
