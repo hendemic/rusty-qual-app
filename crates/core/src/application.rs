@@ -7,6 +7,8 @@ use std::path::{ PathBuf };
 use anyhow::Result;
 
 
+// TODO this is a placeholder. Need to define configuration params
+// and how I handle theming (which is probably not in the first front end proof of concept)
 pub struct AppConfig {
     pub theme: String,
 }
