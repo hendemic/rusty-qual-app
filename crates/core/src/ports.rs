@@ -10,8 +10,6 @@ pub trait ProjectRepository {
         &self,
         path: &Path,
         name: String,
-        codebook: &CodeBook,
-        files: &FileList
     ) -> Result<QualProject, ProjectError>;
     async fn save_project(&self, path: &Path, project: QualProject, codebook: CodeBook, files: FileList) -> Result<(), ProjectError>;
     async fn load_project(&self, path: &Path) -> Result<(QualProject, CodeBook, FileList), ProjectError>;
@@ -19,8 +17,8 @@ pub trait ProjectRepository {
 
 #[async_trait]
 pub trait FileLoader {
-    async fn load_file(&self, path: &Path) -> Result<(String, FileType)>;
-    async fn load_file_metadata(&self, path: &Path) -> Result<FileType>;
+    async fn add_file(&self,  file_list: FileList, path: &Path) -> Result<(QualFile, FileType)>;
+    async fn load_file(&self, file: FileId) -> Result<Vec<TextBlock>, FileError>;
 }
 
 #[async_trait]

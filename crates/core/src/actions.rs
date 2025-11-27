@@ -21,7 +21,7 @@
 
     pub enum FileAction {
         AddFile(PathBuf),
-        OpenFile(FileId),
+        LoadFile(FileId),
         //FindFile(FileId) save this for future. noting here because losing file ref is important MVP handling
     }
 
