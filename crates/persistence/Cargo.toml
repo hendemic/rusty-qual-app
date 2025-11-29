@@ -1,0 +1,8 @@
+[package]
+name = "persistence"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+app_core = { path = "../core", package = "core" }
+serde = { workspace = true }

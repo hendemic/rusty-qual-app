@@ -8,8 +8,11 @@ use std::sync::{Arc, RwLock};
 use anyhow::Result;
 use serde::{Serialize, Deserialize};
 
-/// Shared app state wrapped for interior mutability
+/// **Shared app state wrapped for interior mutability**
+///
 /// Introduced to ensure AppState changes on I/O heavy operations don't block UI
+/// Intention is that UI can read from shared state while async ops happen, and then
+/// async I/O heavy function can lock for state changes in RAM.
 pub type SharedState = Arc<RwLock<AppState>>;
 
 
@@ -44,7 +47,7 @@ impl ProjectContext {
     }
 }
 
-/// Core application state container.
+/// **Core application state container**
 ///
 /// Holds the current project context, codebook, file list, and configuration.
 /// Wrapped in [`SharedState`] (`Arc<Mutex<>>`) to allow shared access across
@@ -66,7 +69,7 @@ impl AppState {
 }
 
 
-/// Application controller that routes actions (in actions.rs) to their handlers.
+/// **Application controller that routes actions (in actions.rs) to their handlers**
 ///
 /// Manages shared state via [`SharedState`] and coordinates async operations
 /// with repositories without blocking UI access. All state mutations happen
@@ -102,6 +105,7 @@ where
         })
     }
 
+    /// Receives Action and routes to appropriate handling function
     pub async fn handle_action(&self, action: Action) -> Result<ActionResult> {
         match action {
             Action::Project(a) => self.handle_project_action(a).await,
