@@ -5,7 +5,7 @@ use crate::actions::*;
 
 use std::path::{ PathBuf };
 use std::sync::{Arc, RwLock};
-use anyhow::Result;
+use anyhow::{Result, Context};
 use serde::{Serialize, Deserialize};
 
 /// **Shared app state wrapped for interior mutability**
@@ -132,7 +132,7 @@ where
                         if let DataState::Empty = state.project {
                             state.project = DataState::Error;
                         }
-                        Err(e.into())
+                        Err(e).context("Failed to create new project")
                     }
                 }
             }
@@ -152,7 +152,7 @@ where
                         if let DataState::Empty = state.project {
                             state.project = DataState::Error;
                         }
-                        Err(e.into())
+                        Err(e).context("Failed to load project")
                     }
                 }
             }
@@ -183,7 +183,7 @@ where
     async fn handle_file_action(&self, action: FileAction) -> Result<ActionResult> {
         match action {
             FileAction::AddFile(path) => {
-                todo!("build out filing adding")
+                todo!("build out file adding")
             }
             FileAction::LoadFile(id) => {
                 todo!("build out opening")

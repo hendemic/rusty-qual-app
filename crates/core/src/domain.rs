@@ -35,7 +35,7 @@ pub enum ProjectError {
 impl fmt::Display for ProjectError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ProjectError::New => write!(f, "Unable to create new project. Check permissions."),
+            ProjectError::New => write!(f, "Unable to create new project."),
             ProjectError::Save(name) => write!(f, "Failed to save project: {:?}", name),
             ProjectError::Load(name) => write!(f, "Failed to load project: {:?}", name),
             ProjectError::InvalidFormat(name) => write!(f, "Invalid format for project: {:?}", name),
@@ -125,8 +125,6 @@ pub enum DataState<T> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QualProject {
     name: String,
-    author: Option<String>,
-    description: Option<String>,
     schema_version: u32,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
@@ -134,17 +132,13 @@ pub struct QualProject {
 
 impl QualProject {
     pub fn new(name: String,
-        author: Option<String>,
-        description: Option<String>,
         schema_version: u32,
         created_at: DateTime<Utc>,
         updated_at: DateTime<Utc>
     ) -> Self {
-        Self { name, author, description, schema_version, created_at, updated_at }
+        Self { name, schema_version, created_at, updated_at }
     }
     pub fn name(&self) -> &str { &self.name }
-    pub fn author(&self) -> Option<&str> { self.author.as_deref() }
-    pub fn description(&self) -> Option<&str> { self.description.as_deref() }
     pub fn schema_version(&self) -> u32 { self.schema_version }
 }
 
