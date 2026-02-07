@@ -1,5 +1,4 @@
 use crate::domain::*;
-use crate::application::*;
 use std::path::Path;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -19,16 +18,13 @@ pub trait ProjectRepository {
         filemanager: FileList
     ) -> Result<()>;
     async fn load_project(&self, path: &Path) -> Result<(QualProject, CodeBook, FileList)>;
-
-    //leaving these commented until I have the app + infra implementing them
-    //async fn insert_code_def(&self, code: CodeDef) -> Result<()>;
-    //async fn insert_theme_def(&self, code: ThemeDef) -> Result<()>;
-    //async fn insert_qual_code(&self, code: QualCode);
-    //async fn insert_file(&self, code: QualFile) -> Result<()>;
-    //async fn delete_code_def(&self, id: CodeDefId) -> Result<()>;
-    //async fn delete_theme_def(&self, id: ThemeId) -> Result<()>;
-    //async fn delete_qual_code(&self, id: QualCodeId) -> Result<()>;
-    //async fn delete_file(&self, id: FileId) -> Result<()>;
+    async fn autosave(
+        &self,
+        path: &Path,
+        project: QualProject,
+        codebook: CodeBook,
+        filemanager: FileList
+    ) -> Result<()>;
 }
 
 #[async_trait]

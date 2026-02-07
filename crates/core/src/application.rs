@@ -5,24 +5,18 @@ use crate::actions::*;
 
 use std::path::{ PathBuf };
 use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::{Result, Context};
-use serde::{Serialize, Deserialize};
 
 
 
 
-// TODO this is a placeholder. Need to define configuration params
-// and how I handle theming (which is probably not in the first front end proof of concept)
-#[derive(Serialize, Deserialize)]
-pub struct AppConfig {
-    pub theme: String,
-}
+/// Resets `is_saving` on Drop so the flag is always cleared.
+struct SavingGuard<'a>(&'a AtomicBool);
 
-impl Default for AppConfig {
-    fn default() -> Self {
-        AppConfig {
-            theme: "dark".to_string(),
-        }
+impl Drop for SavingGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
     }
 }
 
@@ -43,16 +37,15 @@ impl ProjectContext {
 }
 
 
-/// **Core application state container**
-///
-/// Holds the current project context, codebook, file list, and configuration.
-/// Wrapped in [`SharedState`] (`Arc<Mutex<>>`) to allow shared access across
-/// the application while enabling safe mutation during brief, synchronous operations.
+/// Core application state. Wrapped in [`SharedState`] for shared access
+/// across async boundaries.
 pub struct AppState {
     project: DataState<ProjectContext>,
     codebook: CodeBook,
     filemanager: FileList,
     config: AppConfig,
+    /// Tracks mutations so save can detect if state changed during I/O.
+    save_generation: u64,
 }
 
 
@@ -60,27 +53,26 @@ impl AppState {
     pub fn new(project: DataState<ProjectContext>, config: AppConfig) -> Self {
         let codebook = CodeBook::new();
         let filemanager = FileList::new();
-        AppState { project, codebook, filemanager, config }
+        AppState { project, codebook, filemanager, config, save_generation: 0 }
+    }
+
+    /// Marks project as modified and bumps the save generation counter.
+    pub fn mark_modified(&mut self) {
+        self.project.mark_modified();
+        self.save_generation += 1;
     }
 }
 
-/// **Shared app state wrapped for interior mutability**
-///
-/// Introduced to ensure AppState changes on I/O heavy operations don't block UI
-/// Intention is that UI can read from shared state while async ops happen, and then
-/// async I/O heavy function can lock for state changes in RAM.
+/// Shared state for concurrent access between UI reads and async I/O writes.
 pub type SharedState = Arc<RwLock<AppState>>;
 
-/// **Application controller that routes actions (in actions.rs) to their handlers**
-///
-/// Manages shared state via [`SharedState`] and coordinates async operations
-/// with repositories without blocking UI access. All state mutations happen
-/// through brief lock acquisitions around in-memory operations.
+/// Routes [`Action`] variants to their handlers, coordinating state and I/O.
 pub struct AppController <P: ProjectRepository, F: FileHandler, C: ConfigStore> {
     state: SharedState,
     project_repo: P,
     file_loader: F,
     config_store: C,
+    is_saving: AtomicBool,
 }
 
 impl<P, F, C> AppController <P, F, C>
@@ -104,10 +96,10 @@ where
             project_repo,
             file_loader,
             config_store,
+            is_saving: AtomicBool::new(false),
         })
     }
 
-    /// Receives Action and routes to appropriate handling function
     pub async fn handle_action(&self, action: Action) -> Result<ActionResult> {
         match action {
             Action::Project(a) => self.handle_project_action(a).await,
@@ -159,24 +151,40 @@ where
                 }
             }
             ProjectAction::SaveProject => {
-                let save_data = {
+                if self.is_saving.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+                    return Ok(ActionResult::SaveInProgress);
+                }
+                let _guard = SavingGuard(&self.is_saving);
+
+                let (save_data, captured_generation) = {
                     let state = self.state.read().unwrap();
-                    match &state.project {
+                    let data = match &state.project {
                         DataState::Loaded(proj) | DataState::Modified(proj) => {
                             Some((proj.path.clone(), proj.project.clone(), state.codebook.clone(), state.filemanager.clone()))
                         }
                         _ => None
+                    };
+                    (data, state.save_generation)
+                };
+
+                let result = match save_data {
+                    Some((path, project, codebook, filemanager)) => {
+                        self.project_repo.save_project(&path, project, codebook, filemanager).await
+                    }
+                    None => {
+                        return Err(ProjectError::Save("No project loaded".to_string()).into());
                     }
                 };
 
-                match save_data {
-                    Some((path, project, codebook, filemanager)) => {
-                        match self.project_repo.save_project(&path, project, codebook, filemanager).await {
-                            Ok(_) => Ok(ActionResult::Success),
-                            Err(e) => Err(e.into())
+                match result {
+                    Ok(_) => {
+                        let mut state = self.state.write().unwrap();
+                        if state.save_generation == captured_generation {
+                            state.project.mark_saved();
                         }
+                        Ok(ActionResult::Success)
                     }
-                    None => Err(ProjectError::Save("No project loaded".to_string()).into())
+                    Err(e) => Err(e)
                 }
             }
         }
@@ -209,3 +217,6 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

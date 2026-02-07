@@ -120,6 +120,28 @@ pub enum DataState<T> {
     Error,
 }
 
+impl<T> DataState<T> {
+    /// Transitions Modified -> Loaded after a successful save.
+    /// All other states are left unchanged.
+    pub fn mark_saved(&mut self) {
+        let val = std::mem::replace(self, DataState::Empty);
+        *self = match val {
+            DataState::Modified(v) => DataState::Loaded(v),
+            other => other,
+        };
+    }
+
+    /// Transitions Loaded -> Modified when state is mutated.
+    /// All other states are left unchanged.
+    pub fn mark_modified(&mut self) {
+        let val = std::mem::replace(self, DataState::Empty);
+        *self = match val {
+            DataState::Loaded(v) => DataState::Modified(v),
+            other => other,
+        };
+    }
+}
+
 
 ///Highest level project construct
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -535,6 +557,21 @@ impl FileList {
     pub fn file_count(&self) -> usize { self.files.len() }
 }
 
+
+// TODO this is a placeholder. Need to define configuration params
+// and how I handle theming (which is probably not in the first front end proof of concept)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppConfig {
+    pub theme: String,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        AppConfig {
+            theme: "dark".to_string(),
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests;

@@ -41,6 +41,7 @@
     pub enum ActionResult {
         Quit,
         Success,
+        SaveInProgress,
         ThemeCreated(ThemeId),
         CodeCreated(CodeDefId),
         FileAdded(FileId),
