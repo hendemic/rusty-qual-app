@@ -8,12 +8,7 @@ use std::sync::{Arc, RwLock};
 use anyhow::{Result, Context};
 use serde::{Serialize, Deserialize};
 
-/// **Shared app state wrapped for interior mutability**
-///
-/// Introduced to ensure AppState changes on I/O heavy operations don't block UI
-/// Intention is that UI can read from shared state while async ops happen, and then
-/// async I/O heavy function can lock for state changes in RAM.
-pub type SharedState = Arc<RwLock<AppState>>;
+
 
 
 // TODO this is a placeholder. Need to define configuration params
@@ -47,6 +42,7 @@ impl ProjectContext {
     }
 }
 
+
 /// **Core application state container**
 ///
 /// Holds the current project context, codebook, file list, and configuration.
@@ -68,13 +64,19 @@ impl AppState {
     }
 }
 
+/// **Shared app state wrapped for interior mutability**
+///
+/// Introduced to ensure AppState changes on I/O heavy operations don't block UI
+/// Intention is that UI can read from shared state while async ops happen, and then
+/// async I/O heavy function can lock for state changes in RAM.
+pub type SharedState = Arc<RwLock<AppState>>;
 
 /// **Application controller that routes actions (in actions.rs) to their handlers**
 ///
 /// Manages shared state via [`SharedState`] and coordinates async operations
 /// with repositories without blocking UI access. All state mutations happen
 /// through brief lock acquisitions around in-memory operations.
-pub struct AppController <P: ProjectRepository, F: FileLoader, C: ConfigStore> {
+pub struct AppController <P: ProjectRepository, F: FileHandler, C: ConfigStore> {
     state: SharedState,
     project_repo: P,
     file_loader: F,
@@ -84,7 +86,7 @@ pub struct AppController <P: ProjectRepository, F: FileLoader, C: ConfigStore> {
 impl<P, F, C> AppController <P, F, C>
 where
     P: ProjectRepository,
-    F: FileLoader,
+    F: FileHandler,
     C: ConfigStore,
 {
     pub async fn new(state: SharedState, project_repo: P, file_loader: F, config_store: C) -> Result<Self> {

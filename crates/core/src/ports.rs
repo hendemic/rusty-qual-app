@@ -12,12 +12,12 @@ pub trait ProjectRepository {
         name: String,
     ) -> Result<QualProject>;
     async fn save_project(
-            &self,
-            path: &Path,
-            project: QualProject,
-            codebook: CodeBook,
-            filemanager: FileList
-        ) -> Result<()>;
+        &self,
+        path: &Path,
+        project: QualProject,
+        codebook: CodeBook,
+        filemanager: FileList
+    ) -> Result<()>;
     async fn load_project(&self, path: &Path) -> Result<(QualProject, CodeBook, FileList)>;
 
     //leaving these commented until I have the app + infra implementing them
@@ -32,7 +32,7 @@ pub trait ProjectRepository {
 }
 
 #[async_trait]
-pub trait FileLoader {
+pub trait FileHandler{
 
     //need to figure out how this relates to the insert_file function in project repo. might just be load_file for now.
     async fn add_file(&self,  file_list: FileList, path: &Path) -> Result<(QualFile, FileType)>;

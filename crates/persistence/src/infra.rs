@@ -2,7 +2,7 @@
 use app_core::domain::{QualProject, CodeBook, FileList, ProjectError};
 use app_core::ports::ProjectRepository;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool};
 use std::sync::Arc;
 use chrono::Utc;
@@ -13,7 +13,6 @@ use anyhow::Result;
 
 
 pub struct JsonRepository {
-    file_path: PathBuf,
     autosave_active: Arc<AtomicBool>,
     autosave_pending: Arc<AtomicBool>,
     manual_save_active: Arc<AtomicBool>,
