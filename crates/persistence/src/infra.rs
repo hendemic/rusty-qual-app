@@ -1,14 +1,15 @@
-use app_core::domain::{QualProject, CodeBook, FileList, ProjectError};
-use app_core::ports::ProjectRepository;
+use app_core::domain::{QualProject, CodeBook, FileList, FileType, ProjectError};
+use app_core::ports::{ProjectRepository, FileHandler};
 
 use std::path::{Path, PathBuf};
 use chrono::Utc;
 use async_trait::async_trait;
 use serde::{Serialize, Deserialize};
 use tokio::fs;
-use anyhow::Result;
+use anyhow::{Result, Context, bail};
 
 
+#[derive(Default)]
 pub struct JsonRepository;
 
 impl JsonRepository {
@@ -95,6 +96,49 @@ impl ProjectRepository for JsonRepository {
     }
     async fn autosave(&self, _path: &Path, _project: QualProject, _codebook: CodeBook, _filemanager: FileList) -> Result<()> {
         Ok(())
+    }
+}
+
+#[derive(Default)]
+pub struct LocalFileHandler;
+
+impl LocalFileHandler {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait]
+impl FileHandler for LocalFileHandler {
+    async fn detect_type(&self, path: &Path) -> Result<FileType> {
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+
+        let file_type = match ext.to_lowercase().as_str() {
+            "txt" => FileType::PlainText,
+            "md" | "markdown" => FileType::Markdown,
+            "pdf" => FileType::Pdf,
+            "rtf" => FileType::RichText,
+            _ => FileType::Other,
+        };
+
+        Ok(file_type)
+    }
+
+    async fn read_file_content(&self, path: &Path) -> Result<String> {
+        let file_type = self.detect_type(path).await?;
+
+        match file_type {
+            FileType::Pdf => bail!("PDF support not yet implemented"),
+            _ => {
+                let content = fs::read_to_string(path)
+                    .await
+                    .with_context(|| format!("Failed to read file: {}", path.display()))?;
+                Ok(content)
+            }
+        }
     }
 }
 

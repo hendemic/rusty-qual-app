@@ -1,4 +1,4 @@
-use crate::domain::*;
+use crate::domain::{QualProject, CodeBook, FileList, FileType, AppConfig};
 use std::path::Path;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -28,11 +28,9 @@ pub trait ProjectRepository {
 }
 
 #[async_trait]
-pub trait FileHandler{
-
-    //need to figure out how this relates to the insert_file function in project repo. might just be load_file for now.
-    async fn add_file(&self,  file_list: FileList, path: &Path) -> Result<(QualFile, FileType)>;
-    async fn load_file(&self, file: FileId) -> Result<Vec<TextBlock>>;
+pub trait FileHandler {
+    async fn read_file_content(&self, path: &Path) -> Result<String>;
+    async fn detect_type(&self, path: &Path) -> Result<FileType>;
 }
 
 #[async_trait]

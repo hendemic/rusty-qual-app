@@ -2,11 +2,13 @@
 use crate::domain::*;
 use crate::ports::*;
 use crate::actions::*;
+mod file_processing;
+use file_processing::split_into_blocks;
 
-use std::path::{ PathBuf };
-use std::sync::{Arc, RwLock};
+use std::path::PathBuf;
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::sync::atomic::{AtomicBool, Ordering};
-use anyhow::{Result, Context};
+use anyhow::{Result, Context, bail};
 
 
 
@@ -66,6 +68,13 @@ impl AppState {
 /// Shared state for concurrent access between UI reads and async I/O writes.
 pub type SharedState = Arc<RwLock<AppState>>;
 
+/// Converts a Path to a String, returning an error if the path contains non-UTF-8 bytes.
+fn path_to_string(path: &std::path::Path) -> Result<String> {
+    path.to_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("File path contains non-UTF-8 characters: {:?}", path))
+}
+
 /// Routes [`Action`] variants to their handlers, coordinating state and I/O.
 pub struct AppController <P: ProjectRepository, F: FileHandler, C: ConfigStore> {
     state: SharedState,
@@ -81,13 +90,23 @@ where
     F: FileHandler,
     C: ConfigStore,
 {
+    /// Acquires a read lock, recovering from poison if a prior panic occurred.
+    fn read_state(&self) -> RwLockReadGuard<'_, AppState> {
+        self.state.read().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Acquires a write lock, recovering from poison if a prior panic occurred.
+    fn write_state(&self) -> RwLockWriteGuard<'_, AppState> {
+        self.state.write().unwrap_or_else(|e| e.into_inner())
+    }
+
     pub async fn new(state: SharedState, project_repo: P, file_loader: F, config_store: C) -> Result<Self> {
         let config = config_store.load_config()
             .await
             .unwrap_or_default();
 
         {
-            let mut s = state.write().unwrap();
+            let mut s = state.write().unwrap_or_else(|e| e.into_inner());
             s.config = config;
         }
 
@@ -115,7 +134,7 @@ where
             ProjectAction::NewProject { path, name } => {
                 let result = self.project_repo.new_project(&path, name).await;
 
-                let mut state = self.state.write().unwrap();
+                let mut state = self.write_state();
                 match result {
                     Ok(project) => {
                         let ctx = ProjectContext::new(path, project);
@@ -133,7 +152,7 @@ where
             ProjectAction::LoadProject(path) => {
                 let result = self.project_repo.load_project(&path).await;
 
-                let mut state = self.state.write().unwrap();
+                let mut state = self.write_state();
                 match result {
                     Ok((project, codebook, filemanager)) => {
                         let ctx = ProjectContext::new(path, project);
@@ -157,7 +176,7 @@ where
                 let _guard = SavingGuard(&self.is_saving);
 
                 let (save_data, captured_generation) = {
-                    let state = self.state.read().unwrap();
+                    let state = self.read_state();
                     let data = match &state.project {
                         DataState::Loaded(proj) | DataState::Modified(proj) => {
                             Some((proj.path.clone(), proj.project.clone(), state.codebook.clone(), state.filemanager.clone()))
@@ -176,16 +195,12 @@ where
                     }
                 };
 
-                match result {
-                    Ok(_) => {
-                        let mut state = self.state.write().unwrap();
-                        if state.save_generation == captured_generation {
-                            state.project.mark_saved();
-                        }
-                        Ok(ActionResult::Success)
-                    }
-                    Err(e) => Err(e)
+                result?;
+                let mut state = self.write_state();
+                if state.save_generation == captured_generation {
+                    state.project.mark_saved();
                 }
+                Ok(ActionResult::Success)
             }
         }
     }
@@ -193,10 +208,77 @@ where
     async fn handle_file_action(&self, action: FileAction) -> Result<ActionResult> {
         match action {
             FileAction::AddFile(path) => {
-                todo!("build out file adding")
+                let canonical = path.canonicalize()
+                    .context("Failed to canonicalize file path")?;
+                let canonical_str = path_to_string(&canonical)?;
+
+                let file_type = self.file_loader.detect_type(&canonical).await
+                    .context("Failed to detect file type")?;
+
+                let mut state = self.write_state();
+                if state.filemanager.has_path(&canonical_str) {
+                    bail!(FileListError::DuplicatePath(canonical_str));
+                }
+                let id = state.filemanager.add_file(canonical_str, file_type);
+                state.mark_modified();
+                Ok(ActionResult::FileAdded(id))
             }
             FileAction::LoadFile(id) => {
-                todo!("build out opening")
+                let path = {
+                    let state = self.read_state();
+                    let file = state.filemanager.file(id)
+                        .context("File not found")?;
+                    if file.blocks().is_some() {
+                        bail!("File is already loaded. Unload or remove it before reloading.");
+                    }
+                    file.path_buf()
+                };
+
+                let content = self.file_loader.read_file_content(&path).await
+                    .context("Failed to read file content")?;
+                let blocks = split_into_blocks(id, &content);
+
+                let mut state = self.write_state();
+                let file = state.filemanager.file_mut(id)
+                    .context("File not found after read")?;
+                if file.blocks().is_some() {
+                    bail!("File was loaded by a concurrent operation.");
+                }
+                file.set_data_state(DataState::Loaded(blocks));
+                Ok(ActionResult::FileLoaded(id))
+            }
+            FileAction::RemoveFile(id) => {
+                let mut state = self.write_state();
+                let block_file_map = state.filemanager.build_block_file_map();
+                state.codebook.remove_codes_for_file(id, &block_file_map);
+                state.filemanager.remove_file(id)
+                    .context("Failed to remove file")?;
+                state.mark_modified();
+                Ok(ActionResult::FileRemoved(id))
+            }
+            FileAction::ReattachFile(id, path) => {
+                let canonical = path.canonicalize()
+                    .context("Failed to canonicalize file path")?;
+                let canonical_str = path_to_string(&canonical)?;
+
+                let file_type = self.file_loader.detect_type(&canonical).await
+                    .context("Failed to detect file type")?;
+
+                let mut state = self.write_state();
+                if state.filemanager.file(id)
+                    .map(|f| f.path() != canonical_str)
+                    .unwrap_or(false)
+                    && state.filemanager.has_path(&canonical_str)
+                {
+                    bail!(FileListError::DuplicatePath(canonical_str));
+                }
+                let file = state.filemanager.file_mut(id)
+                    .context("File not found for reattachment")?;
+                file.set_path(canonical_str);
+                file.set_file_type(file_type);
+                file.set_data_state(DataState::Empty);
+                state.mark_modified();
+                Ok(ActionResult::FileReattached(id))
             }
         }
     }

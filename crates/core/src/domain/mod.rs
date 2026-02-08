@@ -72,6 +72,7 @@ impl std::error::Error for CodeBookError {}
 #[derive(Debug)]
 pub enum FileListError {
     FileNotFound(FileId),
+    DuplicatePath(String),
     InvalidIndex { provided: usize, max: usize },
 }
 
@@ -79,6 +80,7 @@ impl fmt::Display for FileListError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             FileListError::FileNotFound(id) => write!(f, "File not found: {:?}", id),
+            FileListError::DuplicatePath(path) => write!(f, "File already added: {}", path),
             FileListError::InvalidIndex { provided, max } => {
                 write!(f, "Invalid index: {} (max valid index is {})", provided, max)
             }
@@ -262,6 +264,10 @@ pub struct CodeBook {
     qual_codes: Vec<QualCode>
 }
 
+impl Default for CodeBook {
+    fn default() -> Self { Self::new() }
+}
+
 // Core functions
 impl CodeBook {
     pub fn new() -> Self {
@@ -425,7 +431,7 @@ impl CodeBook {
         block_file_map: &std::collections::HashMap<BlockId, FileId>,
     ) -> impl Iterator<Item = &QualCode> {
         self.qual_codes.iter().filter(move |qc| {
-            block_file_map.get(&qc.highlight.block_id()).map_or(false, |&fid| fid == file_id)
+            block_file_map.get(&qc.highlight.block_id()).is_some_and(|&fid| fid == file_id)
         })
     }
     pub fn remove_codes_for_file(
@@ -434,7 +440,7 @@ impl CodeBook {
         block_file_map: &std::collections::HashMap<BlockId, FileId>,
     ) {
         self.qual_codes.retain(|qc| {
-            block_file_map.get(&qc.highlight.block_id()).map_or(true, |&fid| fid != file_id)
+            block_file_map.get(&qc.highlight.block_id()).is_none_or(|&fid| fid != file_id)
         });
     }
     pub fn get_codes_for_def(&self, def_id: CodeDefId) -> impl Iterator<Item = &QualCode> {
@@ -448,7 +454,7 @@ impl CodeBook {
 
 
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum FileType {
     Pdf,
     PlainText,
@@ -493,6 +499,9 @@ impl QualFile {
 
     pub fn path(&self) -> &str { &self.path }
     pub fn path_buf(&self) -> PathBuf { PathBuf::from(&self.path) }
+    pub fn file_type(&self) -> &FileType { &self.file_type }
+    pub fn set_file_type(&mut self, file_type: FileType) { self.file_type = file_type; }
+    pub fn set_path(&mut self, path: String) { self.path = path; }
     pub fn set_data_state(&mut self, data_state: DataState<Vec<TextBlock>>) { self.data_state = data_state; }
     pub fn blocks(&self) -> Option<&[TextBlock]> {
         match &self.data_state {
@@ -506,6 +515,10 @@ impl QualFile {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileList {
     files: IndexMap<FileId, QualFile>,
+}
+
+impl Default for FileList {
+    fn default() -> Self { Self::new() }
 }
 
 impl FileList {
@@ -555,6 +568,20 @@ impl FileList {
         self.files.sort_by(|_, a, _, b| a.path().cmp(b.path()));
     }
     pub fn file_count(&self) -> usize { self.files.len() }
+    pub fn has_path(&self, path: &str) -> bool {
+        self.files.values().any(|f| f.path() == path)
+    }
+    pub fn build_block_file_map(&self) -> std::collections::HashMap<BlockId, FileId> {
+        let mut map = std::collections::HashMap::new();
+        for file in self.files.values() {
+            if let Some(blocks) = file.blocks() {
+                for block in blocks {
+                    map.insert(block.id, file.id);
+                }
+            }
+        }
+        map
+    }
 }
 
 

@@ -227,3 +227,154 @@ mod save_load {
         assert!(!tmp_path.exists(), "temp file should not remain after save");
     }
 }
+
+// ===== Tests for LocalFileHandler =====
+
+mod local_file_handler {
+    use super::*;
+    use app_core::ports::FileHandler;
+
+    mod detect_type {
+        use super::*;
+
+        #[tokio::test]
+        async fn test_detect_type_txt_returns_plain_text() {
+            // Setup
+            let handler = LocalFileHandler::new();
+            let path = Path::new("document.txt");
+
+            // Execute
+            let result = handler.detect_type(path).await;
+
+            // Assert
+            assert!(result.is_ok());
+            assert!(matches!(result.unwrap(), FileType::PlainText));
+        }
+
+        #[tokio::test]
+        async fn test_detect_type_md_returns_markdown() {
+            // Setup
+            let handler = LocalFileHandler::new();
+            let path = Path::new("notes.md");
+
+            // Execute
+            let result = handler.detect_type(path).await;
+
+            // Assert
+            assert!(result.is_ok());
+            assert!(matches!(result.unwrap(), FileType::Markdown));
+        }
+
+        #[tokio::test]
+        async fn test_detect_type_markdown_extension_returns_markdown() {
+            // Setup
+            let handler = LocalFileHandler::new();
+            let path = Path::new("readme.markdown");
+
+            // Execute
+            let result = handler.detect_type(path).await;
+
+            // Assert
+            assert!(result.is_ok());
+            assert!(matches!(result.unwrap(), FileType::Markdown));
+        }
+
+        #[tokio::test]
+        async fn test_detect_type_pdf_returns_pdf() {
+            // Setup
+            let handler = LocalFileHandler::new();
+            let path = Path::new("report.pdf");
+
+            // Execute
+            let result = handler.detect_type(path).await;
+
+            // Assert
+            assert!(result.is_ok());
+            assert!(matches!(result.unwrap(), FileType::Pdf));
+        }
+
+        #[tokio::test]
+        async fn test_detect_type_unknown_extension_returns_other() {
+            // Setup
+            let handler = LocalFileHandler::new();
+            let path = Path::new("data.xyz");
+
+            // Execute
+            let result = handler.detect_type(path).await;
+
+            // Assert
+            assert!(result.is_ok());
+            assert!(matches!(result.unwrap(), FileType::Other));
+        }
+
+        #[tokio::test]
+        async fn test_detect_type_no_extension_returns_other() {
+            // Setup
+            let handler = LocalFileHandler::new();
+            let path = Path::new("Makefile");
+
+            // Execute
+            let result = handler.detect_type(path).await;
+
+            // Assert
+            assert!(result.is_ok());
+            assert!(matches!(result.unwrap(), FileType::Other));
+        }
+    }
+
+    mod read_file_content {
+        use super::*;
+
+        #[tokio::test]
+        async fn test_read_file_content_plain_text_returns_content() {
+            // Setup
+            let dir = tempdir().unwrap();
+            let file_path = dir.path().join("sample.txt");
+            let expected = "Hello, world!\nSecond line.";
+            std::fs::write(&file_path, expected).unwrap();
+            let handler = LocalFileHandler::new();
+
+            // Execute
+            let result = handler.read_file_content(&file_path).await;
+
+            // Assert
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), expected);
+        }
+
+        #[tokio::test]
+        async fn test_read_file_content_nonexistent_returns_error() {
+            // Setup
+            let dir = tempdir().unwrap();
+            let missing = dir.path().join("does_not_exist.txt");
+            let handler = LocalFileHandler::new();
+
+            // Execute
+            let result = handler.read_file_content(&missing).await;
+
+            // Assert
+            assert!(result.is_err(), "Reading nonexistent file should return error");
+        }
+
+        #[tokio::test]
+        async fn test_read_file_content_pdf_returns_error() {
+            // Setup: create a file with .pdf extension (content doesn't matter, stub rejects all PDFs)
+            let dir = tempdir().unwrap();
+            let pdf_path = dir.path().join("document.pdf");
+            std::fs::write(&pdf_path, "fake pdf content").unwrap();
+            let handler = LocalFileHandler::new();
+
+            // Execute
+            let result = handler.read_file_content(&pdf_path).await;
+
+            // Assert
+            assert!(result.is_err(), "Reading PDF should return error (not yet implemented)");
+            let err_msg = format!("{}", result.unwrap_err());
+            assert!(
+                err_msg.contains("PDF support not yet implemented"),
+                "Error should mention PDF not implemented, got: {}",
+                err_msg
+            );
+        }
+    }
+}

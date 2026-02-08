@@ -22,6 +22,8 @@
     pub enum FileAction {
         AddFile(PathBuf),
         LoadFile(FileId),
+        RemoveFile(FileId),
+        ReattachFile(FileId, PathBuf),
         //FindFile(FileId) save this for future. noting here because losing file ref is important MVP handling
     }
 
@@ -45,5 +47,8 @@
         ThemeCreated(ThemeId),
         CodeCreated(CodeDefId),
         FileAdded(FileId),
+        FileLoaded(FileId),
+        FileRemoved(FileId),
+        FileReattached(FileId),
         CodeApplied(QualCodeId),
     }
