@@ -26,12 +26,12 @@ fn create_populated_data() -> (CodeBook, FileList) {
         "Positive Sentiment".to_string(),
         2,
         Some(theme_id),
-    );
+    ).unwrap();
     let _code_def_no_theme = codebook.create_code_def(
         "Negative Sentiment".to_string(),
         3,
         None,
-    );
+    ).unwrap();
 
     // Add a file with a block
     let file_id = FileId::generate();

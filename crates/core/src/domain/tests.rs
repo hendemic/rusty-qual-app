@@ -60,7 +60,7 @@ mod code_retrieval {
         let file = create_test_file("test.txt", 3);
         let block_map = build_block_map(&[&file]);
 
-        let code_def_id = codebook.create_code_def("TestCode".to_string(), 1, None);
+        let code_def_id = codebook.create_code_def("TestCode".to_string(), 1, None).unwrap();
 
         // Apply 3 codes to different blocks in the same file
         let blocks = file.blocks().unwrap();
@@ -95,7 +95,7 @@ mod code_retrieval {
         let file_b = create_test_file("file_b.txt", 2);
         let block_map = build_block_map(&[&file_a, &file_b]);
 
-        let code_def_id = codebook.create_code_def("TestCode".to_string(), 1, None);
+        let code_def_id = codebook.create_code_def("TestCode".to_string(), 1, None).unwrap();
 
         // Apply codes to file A
         let blocks_a = file_a.blocks().unwrap();
@@ -177,7 +177,7 @@ mod code_retrieval {
         // Setup: Create a code with a block_id that doesn't exist in the map
         let mut codebook = create_test_codebook();
         let file = create_test_file("test.txt", 1);
-        let code_def_id = codebook.create_code_def("TestCode".to_string(), 1, None);
+        let code_def_id = codebook.create_code_def("TestCode".to_string(), 1, None).unwrap();
 
         // Create a code with a valid block
         let blocks = file.blocks().unwrap();
@@ -219,8 +219,8 @@ mod code_retrieval {
         let mut codebook = create_test_codebook();
         let file = create_test_file("test.txt", 4);
 
-        let code_def_1 = codebook.create_code_def("Code1".to_string(), 1, None);
-        let code_def_2 = codebook.create_code_def("Code2".to_string(), 2, None);
+        let code_def_1 = codebook.create_code_def("Code1".to_string(), 1, None).unwrap();
+        let code_def_2 = codebook.create_code_def("Code2".to_string(), 2, None).unwrap();
 
         // Apply 2 codes from code_def_1
         let blocks = file.blocks().unwrap();
@@ -257,7 +257,7 @@ mod code_retrieval {
     fn test_remove_code_def_with_no_applied_codes() {
         // Setup: Create a code def but never apply it
         let mut codebook = create_test_codebook();
-        let code_def = codebook.create_code_def("Unused".to_string(), 1, None);
+        let code_def = codebook.create_code_def("Unused".to_string(), 1, None).unwrap();
 
         assert_eq!(codebook.get_all_qual_codes().len(), 0, "Should have 0 codes initially");
 
@@ -297,7 +297,7 @@ mod code_retrieval {
         let file_b = create_test_file("b.txt", 2);
         let block_map = build_block_map(&[&file_a, &file_b]);
 
-        let code_def = codebook.create_code_def("SharedCode".to_string(), 1, None);
+        let code_def = codebook.create_code_def("SharedCode".to_string(), 1, None).unwrap();
 
         // Apply codes to both files
         let blocks_a = file_a.blocks().unwrap();
@@ -334,9 +334,9 @@ mod theme_operations {
         let mut codebook = create_test_codebook();
 
         let theme_id = codebook.create_theme("Theme1".to_string(), 1);
-        let _code_def_1 = codebook.create_code_def("Code1".to_string(), 1, Some(theme_id));
-        let _code_def_2 = codebook.create_code_def("Code2".to_string(), 2, Some(theme_id));
-        let _code_def_3 = codebook.create_code_def("TopLevel".to_string(), 3, None);
+        let _code_def_1 = codebook.create_code_def("Code1".to_string(), 1, Some(theme_id)).unwrap();
+        let _code_def_2 = codebook.create_code_def("Code2".to_string(), 2, Some(theme_id)).unwrap();
+        let _code_def_3 = codebook.create_code_def("TopLevel".to_string(), 3, None).unwrap();
 
         // Verify setup
         assert_eq!(codebook.get_codes_in_theme(theme_id).count(), 2, "Theme should have 2 codes");
@@ -362,17 +362,17 @@ mod theme_operations {
         let theme_a = codebook.create_theme("ThemeA".to_string(), 1);
         let theme_b = codebook.create_theme("ThemeB".to_string(), 2);
 
-        let code_1 = codebook.create_code_def("Code1".to_string(), 1, None);
-        let code_2 = codebook.create_code_def("Code2".to_string(), 2, None);
-        let code_3 = codebook.create_code_def("Code3".to_string(), 3, None);
+        let code_1 = codebook.create_code_def("Code1".to_string(), 1, None).unwrap();
+        let code_2 = codebook.create_code_def("Code2".to_string(), 2, None).unwrap();
+        let code_3 = codebook.create_code_def("Code3".to_string(), 3, None).unwrap();
 
         // All codes start as top-level
         assert_eq!(codebook.get_top_level_codes().count(), 3, "Should have 3 top-level codes");
 
         // Execute: Move codes to themes
-        codebook.move_code_to_theme(code_1, theme_a);
-        codebook.move_code_to_theme(code_2, theme_a);
-        codebook.move_code_to_theme(code_3, theme_b);
+        codebook.move_code_to_theme(code_1, theme_a).unwrap();
+        codebook.move_code_to_theme(code_2, theme_a).unwrap();
+        codebook.move_code_to_theme(code_3, theme_b).unwrap();
 
         // Assert: Codes are in correct themes
         let theme_a_codes: Vec<CodeDefId> = codebook.get_codes_in_theme(theme_a)
@@ -398,8 +398,8 @@ mod theme_operations {
         let mut codebook = create_test_codebook();
 
         let theme_id = codebook.create_theme("Theme1".to_string(), 1);
-        let code_1 = codebook.create_code_def("Code1".to_string(), 1, Some(theme_id));
-        let _code_2 = codebook.create_code_def("Code2".to_string(), 2, Some(theme_id));
+        let code_1 = codebook.create_code_def("Code1".to_string(), 1, Some(theme_id)).unwrap();
+        let _code_2 = codebook.create_code_def("Code2".to_string(), 2, Some(theme_id)).unwrap();
 
         assert_eq!(codebook.get_codes_in_theme(theme_id).count(), 2, "Theme should have 2 codes");
         assert_eq!(codebook.get_top_level_codes().count(), 0, "Should have 0 top-level codes");
@@ -423,14 +423,14 @@ mod theme_operations {
 
         let theme_a = codebook.create_theme("ThemeA".to_string(), 1);
         let theme_b = codebook.create_theme("ThemeB".to_string(), 2);
-        let code_id = codebook.create_code_def("Code1".to_string(), 1, Some(theme_a));
+        let code_id = codebook.create_code_def("Code1".to_string(), 1, Some(theme_a)).unwrap();
 
         // Verify initial state
         assert_eq!(codebook.get_codes_in_theme(theme_a).count(), 1, "Theme A should have 1 code");
         assert_eq!(codebook.get_codes_in_theme(theme_b).count(), 0, "Theme B should have 0 codes");
 
         // Execute: Move code from theme A to theme B
-        codebook.move_code_to_theme(code_id, theme_b);
+        codebook.move_code_to_theme(code_id, theme_b).unwrap();
 
         // Assert: Code moved from A to B
         assert_eq!(codebook.get_codes_in_theme(theme_a).count(), 0, "Theme A should have 0 codes");
@@ -487,11 +487,11 @@ mod theme_operations {
         let theme_2 = codebook.create_theme("Theme2".to_string(), 2);
         let theme_3 = codebook.create_theme("Theme3".to_string(), 3);
 
-        let code_1a = codebook.create_code_def("Code1A".to_string(), 1, Some(theme_1));
-        let code_1b = codebook.create_code_def("Code1B".to_string(), 2, Some(theme_1));
-        let code_2a = codebook.create_code_def("Code2A".to_string(), 3, Some(theme_2));
-        let code_3a = codebook.create_code_def("Code3A".to_string(), 4, Some(theme_3));
-        let code_top = codebook.create_code_def("TopLevel".to_string(), 5, None);
+        let code_1a = codebook.create_code_def("Code1A".to_string(), 1, Some(theme_1)).unwrap();
+        let code_1b = codebook.create_code_def("Code1B".to_string(), 2, Some(theme_1)).unwrap();
+        let code_2a = codebook.create_code_def("Code2A".to_string(), 3, Some(theme_2)).unwrap();
+        let code_3a = codebook.create_code_def("Code3A".to_string(), 4, Some(theme_3)).unwrap();
+        let code_top = codebook.create_code_def("TopLevel".to_string(), 5, None).unwrap();
 
         // Assert: Each theme has correct codes
         let t1_codes: Vec<CodeDefId> = codebook.get_codes_in_theme(theme_1).map(|c| c.id).collect();
@@ -530,9 +530,9 @@ mod code_index_changes {
         // Setup: Create 3 code defs, move last to beginning
         let mut codebook = create_test_codebook();
 
-        let code_1 = codebook.create_code_def("Code1".to_string(), 1, None);
-        let code_2 = codebook.create_code_def("Code2".to_string(), 2, None);
-        let code_3 = codebook.create_code_def("Code3".to_string(), 3, None);
+        let code_1 = codebook.create_code_def("Code1".to_string(), 1, None).unwrap();
+        let code_2 = codebook.create_code_def("Code2".to_string(), 2, None).unwrap();
+        let code_3 = codebook.create_code_def("Code3".to_string(), 3, None).unwrap();
 
         // Execute: Move code_3 to index 0
         let result = codebook.move_code_def_to_index(code_3, 0);
@@ -548,9 +548,9 @@ mod code_index_changes {
         // Setup: Create 3 code defs, move first to end
         let mut codebook = create_test_codebook();
 
-        let code_1 = codebook.create_code_def("Code1".to_string(), 1, None);
-        let code_2 = codebook.create_code_def("Code2".to_string(), 2, None);
-        let code_3 = codebook.create_code_def("Code3".to_string(), 3, None);
+        let code_1 = codebook.create_code_def("Code1".to_string(), 1, None).unwrap();
+        let code_2 = codebook.create_code_def("Code2".to_string(), 2, None).unwrap();
+        let code_3 = codebook.create_code_def("Code3".to_string(), 3, None).unwrap();
 
         // Execute: Move code_1 to index 2 (last position)
         let result = codebook.move_code_def_to_index(code_1, 2);
@@ -566,9 +566,9 @@ mod code_index_changes {
         // Setup: Create 3 code defs
         let mut codebook = create_test_codebook();
 
-        let code_1 = codebook.create_code_def("Code1".to_string(), 1, None);
-        let code_2 = codebook.create_code_def("Code2".to_string(), 2, None);
-        let code_3 = codebook.create_code_def("Code3".to_string(), 3, None);
+        let code_1 = codebook.create_code_def("Code1".to_string(), 1, None).unwrap();
+        let code_2 = codebook.create_code_def("Code2".to_string(), 2, None).unwrap();
+        let code_3 = codebook.create_code_def("Code3".to_string(), 3, None).unwrap();
 
         // Execute: Move code_2 to its current position (index 1)
         let result = codebook.move_code_def_to_index(code_2, 1);
@@ -584,8 +584,8 @@ mod code_index_changes {
         // Setup: Create 2 code defs
         let mut codebook = create_test_codebook();
 
-        let code_1 = codebook.create_code_def("Code1".to_string(), 1, None);
-        let _code_2 = codebook.create_code_def("Code2".to_string(), 2, None);
+        let code_1 = codebook.create_code_def("Code1".to_string(), 1, None).unwrap();
+        let _code_2 = codebook.create_code_def("Code2".to_string(), 2, None).unwrap();
 
         // Execute: Try to move to index 5 (too large)
         let result = codebook.move_code_def_to_index(code_1, 5);
@@ -606,10 +606,10 @@ mod code_index_changes {
         // Setup: Create 4 code defs
         let mut codebook = create_test_codebook();
 
-        let code_1 = codebook.create_code_def("Code1".to_string(), 1, None);
-        let code_2 = codebook.create_code_def("Code2".to_string(), 2, None);
-        let code_3 = codebook.create_code_def("Code3".to_string(), 3, None);
-        let code_4 = codebook.create_code_def("Code4".to_string(), 4, None);
+        let code_1 = codebook.create_code_def("Code1".to_string(), 1, None).unwrap();
+        let code_2 = codebook.create_code_def("Code2".to_string(), 2, None).unwrap();
+        let code_3 = codebook.create_code_def("Code3".to_string(), 3, None).unwrap();
+        let code_4 = codebook.create_code_def("Code4".to_string(), 4, None).unwrap();
 
         // Execute: Swap indices 1 and 3
         let result = codebook.swap_code_defs(1, 3);
@@ -625,8 +625,8 @@ mod code_index_changes {
         // Setup: Create 2 code defs
         let mut codebook = create_test_codebook();
 
-        codebook.create_code_def("Code1".to_string(), 1, None);
-        codebook.create_code_def("Code2".to_string(), 2, None);
+        codebook.create_code_def("Code1".to_string(), 1, None).unwrap();
+        codebook.create_code_def("Code2".to_string(), 2, None).unwrap();
 
         // Execute: Try to swap with invalid index
         let result = codebook.swap_code_defs(0, 5);
@@ -772,9 +772,9 @@ mod code_index_changes {
         // Setup: Create code defs in random order
         let mut codebook = create_test_codebook();
 
-        let code_c = codebook.create_code_def("Charlie".to_string(), 1, None);
-        let code_a = codebook.create_code_def("Alice".to_string(), 2, None);
-        let code_b = codebook.create_code_def("Bob".to_string(), 3, None);
+        let code_c = codebook.create_code_def("Charlie".to_string(), 1, None).unwrap();
+        let code_a = codebook.create_code_def("Alice".to_string(), 2, None).unwrap();
+        let code_b = codebook.create_code_def("Bob".to_string(), 3, None).unwrap();
 
         // Verify initial order
         let initial_order: Vec<CodeDefId> = codebook.get_all_code_defs().map(|c| c.id).collect();
@@ -835,9 +835,9 @@ mod code_index_changes {
         // Setup: Create code defs with duplicate names
         let mut codebook = create_test_codebook();
 
-        let _code_1 = codebook.create_code_def("Duplicate".to_string(), 1, None);
-        let _code_2 = codebook.create_code_def("Duplicate".to_string(), 2, None);
-        let code_3 = codebook.create_code_def("Unique".to_string(), 3, None);
+        let _code_1 = codebook.create_code_def("Duplicate".to_string(), 1, None).unwrap();
+        let _code_2 = codebook.create_code_def("Duplicate".to_string(), 2, None).unwrap();
+        let code_3 = codebook.create_code_def("Unique".to_string(), 3, None).unwrap();
 
         // Execute: Sort by name
         codebook.sort_code_defs_by_name();
@@ -857,8 +857,8 @@ mod code_index_changes {
         let mut codebook = create_test_codebook();
 
         let theme_id = codebook.create_theme("MyTheme".to_string(), 1);
-        let code_z = codebook.create_code_def("Zebra".to_string(), 1, Some(theme_id));
-        let code_a = codebook.create_code_def("Apple".to_string(), 2, Some(theme_id));
+        let code_z = codebook.create_code_def("Zebra".to_string(), 1, Some(theme_id)).unwrap();
+        let code_a = codebook.create_code_def("Apple".to_string(), 2, Some(theme_id)).unwrap();
 
         // Execute: Sort code defs
         codebook.sort_code_defs_by_name();
@@ -986,7 +986,7 @@ mod file_removal {
         let block_id = block.id;
         file_list.add_file(file_id, "test.txt".to_string(), "test.txt".to_string(), FileType::PlainText, vec![block]);
 
-        let code_def_id = codebook.create_code_def("Code1".to_string(), 1, None);
+        let code_def_id = codebook.create_code_def("Code1".to_string(), 1, None).unwrap();
         let highlight = Highlight::new(block_id, 0, 5);
         codebook.apply_code(code_def_id, highlight, "snip".to_string(), String::new(), String::new());
 
@@ -1018,7 +1018,7 @@ mod file_removal {
         let block2_id = block2.id;
         file_list.add_file(file_id, "test.txt".to_string(), "test.txt".to_string(), FileType::PlainText, vec![block1, block2]);
 
-        let code_def_id = codebook.create_code_def("Code1".to_string(), 1, None);
+        let code_def_id = codebook.create_code_def("Code1".to_string(), 1, None).unwrap();
         apply_test_code(&mut codebook, block1_id, code_def_id, "snip1");
         apply_test_code(&mut codebook, block2_id, code_def_id, "snip2");
 
@@ -1147,5 +1147,241 @@ mod file_data_states {
         // Assert: Blocks are now None
         let file = file_list.file(file_id).unwrap();
         assert!(file.blocks().is_none(), "Should have no blocks after Empty transition");
+    }
+}
+
+// ===== Tests for schema domain operations (setters, mutators, create_code_def validation) =====
+
+mod schema_domain_tests {
+    use super::*;
+
+    #[test]
+    fn test_set_name_on_code_def_updates_name() {
+        // Setup
+        let mut codebook = create_test_codebook();
+        let id = codebook.create_code_def("Original".to_string(), 1, None).unwrap();
+
+        // Execute
+        let code = codebook.code_def_mut(id).unwrap();
+        code.set_name("Renamed".to_string());
+
+        // Assert
+        assert_eq!(codebook.code_def(id).unwrap().name(), "Renamed");
+    }
+
+    #[test]
+    fn test_set_color_on_code_def_updates_color() {
+        // Setup
+        let mut codebook = create_test_codebook();
+        let id = codebook.create_code_def("Code".to_string(), 1, None).unwrap();
+
+        // Execute
+        let code = codebook.code_def_mut(id).unwrap();
+        code.set_color(42);
+
+        // Assert
+        assert_eq!(codebook.code_def(id).unwrap().color(), 42);
+    }
+
+    #[test]
+    fn test_set_name_on_theme_def_updates_name() {
+        // Setup
+        let mut codebook = create_test_codebook();
+        let id = codebook.create_theme("Original".to_string(), 1);
+
+        // Execute
+        let theme = codebook.theme_mut(id).unwrap();
+        theme.set_name("Renamed".to_string());
+
+        // Assert
+        assert_eq!(codebook.theme(id).unwrap().name(), "Renamed");
+    }
+
+    #[test]
+    fn test_set_color_on_theme_def_updates_color() {
+        // Setup
+        let mut codebook = create_test_codebook();
+        let id = codebook.create_theme("Theme".to_string(), 1);
+
+        // Execute
+        let theme = codebook.theme_mut(id).unwrap();
+        theme.set_color(99);
+
+        // Assert
+        assert_eq!(codebook.theme(id).unwrap().color(), 99);
+    }
+
+    #[test]
+    fn test_code_def_mut_returns_some_for_existing() {
+        // Setup
+        let mut codebook = create_test_codebook();
+        let id = codebook.create_code_def("Exists".to_string(), 1, None).unwrap();
+
+        // Execute & Assert
+        assert!(codebook.code_def_mut(id).is_some(), "Should return Some for existing code def");
+    }
+
+    #[test]
+    fn test_code_def_mut_returns_none_for_nonexistent() {
+        // Setup
+        let mut codebook = create_test_codebook();
+        let fake_id = CodeDefId(Uuid::new_v4());
+
+        // Execute & Assert
+        assert!(codebook.code_def_mut(fake_id).is_none(), "Should return None for nonexistent code def");
+    }
+
+    #[test]
+    fn test_theme_mut_returns_some_for_existing() {
+        // Setup
+        let mut codebook = create_test_codebook();
+        let id = codebook.create_theme("Exists".to_string(), 1);
+
+        // Execute & Assert
+        assert!(codebook.theme_mut(id).is_some(), "Should return Some for existing theme");
+    }
+
+    #[test]
+    fn test_theme_mut_returns_none_for_nonexistent() {
+        // Setup
+        let mut codebook = create_test_codebook();
+        let fake_id = ThemeId(Uuid::new_v4());
+
+        // Execute & Assert
+        assert!(codebook.theme_mut(fake_id).is_none(), "Should return None for nonexistent theme");
+    }
+
+    #[test]
+    fn test_create_code_def_with_valid_theme_id_returns_ok() {
+        // Setup
+        let mut codebook = create_test_codebook();
+        let theme_id = codebook.create_theme("Theme".to_string(), 1);
+
+        // Execute
+        let result = codebook.create_code_def("Code".to_string(), 1, Some(theme_id));
+
+        // Assert
+        assert!(result.is_ok(), "Should succeed with valid theme_id");
+        let id = result.unwrap();
+        assert_eq!(codebook.code_def(id).unwrap().theme_id(), Some(theme_id));
+    }
+
+    #[test]
+    fn test_create_code_def_with_invalid_theme_id_returns_theme_not_found() {
+        // Setup
+        let mut codebook = create_test_codebook();
+        let fake_theme = ThemeId(Uuid::new_v4());
+
+        // Execute
+        let result = codebook.create_code_def("Code".to_string(), 1, Some(fake_theme));
+
+        // Assert
+        assert!(result.is_err(), "Should fail with invalid theme_id");
+        match result {
+            Err(CodeBookError::ThemeNotFound(id)) => {
+                assert_eq!(id, fake_theme, "Error should contain the invalid theme ID");
+            }
+            _ => panic!("Expected ThemeNotFound error"),
+        }
+    }
+
+    #[test]
+    fn test_create_code_def_with_none_theme_id_returns_ok() {
+        // Setup
+        let mut codebook = create_test_codebook();
+
+        // Execute
+        let result = codebook.create_code_def("TopLevel".to_string(), 1, None);
+
+        // Assert
+        assert!(result.is_ok(), "Should succeed with None theme_id");
+        let id = result.unwrap();
+        assert_eq!(codebook.code_def(id).unwrap().theme_id(), None);
+    }
+}
+
+// ===== Tests for theme-to-code mapping domain operations =====
+
+mod theme_mapping_domain_tests {
+    use super::*;
+
+    #[test]
+    fn test_move_code_to_theme_with_valid_ids_returns_ok() {
+        // Setup
+        let mut codebook = create_test_codebook();
+        let theme_id = codebook.create_theme("Theme".to_string(), 1);
+        let code_id = codebook.create_code_def("Code".to_string(), 1, None).unwrap();
+
+        // Execute
+        let result = codebook.move_code_to_theme(code_id, theme_id);
+
+        // Assert
+        assert!(result.is_ok(), "Should succeed with valid code and theme IDs");
+        assert_eq!(codebook.code_def(code_id).unwrap().theme_id(), Some(theme_id));
+    }
+
+    #[test]
+    fn test_move_code_to_theme_with_invalid_code_id_returns_error() {
+        // Setup
+        let mut codebook = create_test_codebook();
+        let theme_id = codebook.create_theme("Theme".to_string(), 1);
+        let fake_code_id = CodeDefId(Uuid::new_v4());
+
+        // Execute
+        let result = codebook.move_code_to_theme(fake_code_id, theme_id);
+
+        // Assert
+        assert!(result.is_err(), "Should fail with nonexistent code ID");
+        match result {
+            Err(CodeBookError::CodeDefNotFound(id)) => {
+                assert_eq!(id, fake_code_id, "Error should contain the invalid code ID");
+            }
+            _ => panic!("Expected CodeDefNotFound error"),
+        }
+    }
+
+    #[test]
+    fn test_move_code_to_theme_with_invalid_theme_id_returns_error() {
+        // Setup
+        let mut codebook = create_test_codebook();
+        let code_id = codebook.create_code_def("Code".to_string(), 1, None).unwrap();
+        let fake_theme_id = ThemeId(Uuid::new_v4());
+
+        // Execute
+        let result = codebook.move_code_to_theme(code_id, fake_theme_id);
+
+        // Assert
+        assert!(result.is_err(), "Should fail with nonexistent theme ID");
+        match result {
+            Err(CodeBookError::ThemeNotFound(id)) => {
+                assert_eq!(id, fake_theme_id, "Error should contain the invalid theme ID");
+            }
+            _ => panic!("Expected ThemeNotFound error"),
+        }
+    }
+
+    #[test]
+    fn test_move_code_to_theme_reassigns_from_one_theme_to_another() {
+        // Setup
+        let mut codebook = create_test_codebook();
+        let theme_a = codebook.create_theme("ThemeA".to_string(), 1);
+        let theme_b = codebook.create_theme("ThemeB".to_string(), 2);
+        let code_id = codebook.create_code_def("Code".to_string(), 1, Some(theme_a)).unwrap();
+
+        // Verify initial state
+        assert_eq!(codebook.code_def(code_id).unwrap().theme_id(), Some(theme_a));
+
+        // Execute
+        let result = codebook.move_code_to_theme(code_id, theme_b);
+
+        // Assert
+        assert!(result.is_ok(), "Should succeed when reassigning to a different theme");
+        assert_eq!(
+            codebook.code_def(code_id).unwrap().theme_id(),
+            Some(theme_b),
+            "Code should now be assigned to theme B"
+        );
+        assert_eq!(codebook.get_codes_in_theme(theme_a).count(), 0, "Theme A should have 0 codes");
+        assert_eq!(codebook.get_codes_in_theme(theme_b).count(), 1, "Theme B should have 1 code");
     }
 }

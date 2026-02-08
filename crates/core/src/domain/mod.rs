@@ -214,7 +214,9 @@ impl CodeDef {
     pub fn theme_id(&self) -> Option<ThemeId> { self.theme_id }
     pub fn set_theme_id(&mut self, theme_id: Option<ThemeId>) { self.theme_id = theme_id; }
     pub fn name(&self) -> &str { &self.name }
+    pub fn set_name(&mut self, name: String) { self.name = name; }
     pub fn color(&self) -> u8 { self.color }
+    pub fn set_color(&mut self, color: u8) { self.color = color; }
 }
 
 /// Highlighted instance of a Code in a given file.
@@ -255,7 +257,9 @@ impl ThemeDef {
         ThemeDef { id, name, color }
     }
     pub fn name(&self) -> &str { &self.name }
+    pub fn set_name(&mut self, name: String) { self.name = name; }
     pub fn color(&self) -> u8 { self.color }
+    pub fn set_color(&mut self, color: u8) { self.color = color; }
 }
 
 /// Codebook containing all code definitions themes, and vector of all QualCodes.
@@ -286,14 +290,19 @@ impl CodeBook {
 
 //CodeDef methods
 impl CodeBook {
-    pub fn create_code_def(&mut self, name: String, color: u8, theme_id: Option<ThemeId>) -> CodeDefId {
+    pub fn create_code_def(&mut self, name: String, color: u8, theme_id: Option<ThemeId>) -> Result<CodeDefId, CodeBookError> {
+        if let Some(tid) = theme_id
+            && !self.themes.contains_key(&tid) {
+                return Err(CodeBookError::ThemeNotFound(tid));
+        }
         let mut code_def = CodeDef::new(name, color);
         code_def.theme_id = theme_id;
         let id = code_def.id;
         self.code_defs.insert(id, code_def);
-        id
+        Ok(id)
     }
     pub fn code_def(&self, id: CodeDefId) -> Option<&CodeDef> { self.code_defs.get(&id) }
+    pub fn code_def_mut(&mut self, id: CodeDefId) -> Option<&mut CodeDef> { self.code_defs.get_mut(&id) }
 
     pub fn remove_code_def(&mut self, id: CodeDefId) -> Result<CodeDef, CodeBookError> {
         self.qual_codes.retain(|qc| qc.def_id != id); //remove codes for the def first
@@ -344,6 +353,7 @@ impl CodeBook {
         id
     }
     pub fn theme(&self, id: ThemeId) -> Option<&ThemeDef> { self.themes.get(&id) }
+    pub fn theme_mut(&mut self, id: ThemeId) -> Option<&mut ThemeDef> { self.themes.get_mut(&id) }
 
     pub fn remove_theme(&mut self, id: ThemeId) -> Result<ThemeDef, CodeBookError> {
         // Reset corresponding CodeDef references to None
@@ -364,10 +374,14 @@ impl CodeBook {
     pub fn get_top_level_codes(&self) -> impl Iterator<Item = &CodeDef> {
         self.code_defs.values().filter(|cd| cd.theme_id.is_none())
     }
-    pub fn move_code_to_theme(&mut self, code_id: CodeDefId, theme_id: ThemeId) {
-        if let Some(code_def) = self.code_defs.get_mut(&code_id) {
-            code_def.theme_id = Some(theme_id);
+    pub fn move_code_to_theme(&mut self, code_id: CodeDefId, theme_id: ThemeId) -> Result<(), CodeBookError> {
+        if !self.themes.contains_key(&theme_id) {
+            return Err(CodeBookError::ThemeNotFound(theme_id));
         }
+        let code_def = self.code_defs.get_mut(&code_id)
+            .ok_or(CodeBookError::CodeDefNotFound(code_id))?;
+        code_def.theme_id = Some(theme_id);
+        Ok(())
     }
     pub fn remove_code_from_theme(&mut self, code_id: CodeDefId) -> Result<(), CodeBookError> {
         let code_def = self.code_defs.get_mut(&code_id)

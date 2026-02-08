@@ -29,7 +29,17 @@
         CreateCode{
             name: String,
             color: u8,
+            theme_id: Option<ThemeId>,
         },
+        RenameCode { id: CodeDefId, name: String },
+        UpdateCodeColor { id: CodeDefId, color: u8 },
+        DeleteCode { id: CodeDefId },
+        CreateTheme { name: String, color: u8 },
+        RenameTheme { id: ThemeId, name: String },
+        UpdateThemeColor { id: ThemeId, color: u8 },
+        DeleteTheme { id: ThemeId },
+        AssignCodeToTheme { code_id: CodeDefId, theme_id: ThemeId },
+        RemoveCodeFromTheme { code_id: CodeDefId },
     }
     pub enum CodingAction {
         ApplyCode {
@@ -38,6 +48,7 @@
             snippet: String,
         },
     }
+    #[derive(Debug)]
     pub enum ActionResult {
         Quit,
         Success,

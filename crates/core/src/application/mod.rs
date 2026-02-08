@@ -58,6 +58,10 @@ impl AppState {
         AppState { project, codebook, filemanager, config, save_generation: 0 }
     }
 
+    pub fn is_loaded(&self) -> bool {
+        matches!(self.project, DataState::Loaded(_) | DataState::Modified(_))
+    }
+
     /// Marks project as modified and bumps the save generation counter.
     pub fn mark_modified(&mut self) {
         self.project.mark_modified();
@@ -227,6 +231,7 @@ where
                 let blocks = split_into_blocks(id, &content);
 
                 let mut state = self.write_state();
+                if !state.is_loaded() { bail!("No project loaded"); }
                 if state.filemanager.has_path(&canonical_str) {
                     bail!(FileListError::DuplicatePath(canonical_str));
                 }
@@ -236,6 +241,7 @@ where
             }
             FileAction::RemoveFile(id) => {
                 let mut state = self.write_state();
+                if !state.is_loaded() { bail!("No project loaded"); }
                 let block_file_map = state.filemanager.build_block_file_map();
                 state.codebook.remove_codes_for_file(id, &block_file_map);
                 state.filemanager.remove_file(id)
@@ -257,6 +263,7 @@ where
                 let blocks = split_into_blocks(id, &content);
 
                 let mut state = self.write_state();
+                if !state.is_loaded() { bail!("No project loaded"); }
                 let file = state.filemanager.file_mut(id)
                     .context("File not found for reload")?;
                 file.reload(canonical_str, file_type, blocks);
@@ -267,17 +274,88 @@ where
     }
 
     fn handle_schema_action(&self, action: SchemaAction) -> Result<ActionResult> {
+        let mut state = self.write_state();
+        if !state.is_loaded() { bail!("No project loaded"); }
+
         match action {
-            SchemaAction::CreateCode { name, color } => {
-                todo!("build out code creation")
+            SchemaAction::CreateCode { name, color, theme_id } => {
+                let id = state.codebook.create_code_def(name, color, theme_id)
+                    .context("Failed to create code definition")?;
+                state.mark_modified();
+                Ok(ActionResult::CodeCreated(id))
+            }
+            SchemaAction::RenameCode { id, name } => {
+                let code = state.codebook.code_def_mut(id)
+                    .ok_or(CodeBookError::CodeDefNotFound(id))
+                    .context("Failed to rename code definition")?;
+                code.set_name(name);
+                state.mark_modified();
+                Ok(ActionResult::Success)
+            }
+            SchemaAction::UpdateCodeColor { id, color } => {
+                let code = state.codebook.code_def_mut(id)
+                    .ok_or(CodeBookError::CodeDefNotFound(id))
+                    .context("Failed to update code color")?;
+                code.set_color(color);
+                state.mark_modified();
+                Ok(ActionResult::Success)
+            }
+            SchemaAction::DeleteCode { id } => {
+                state.codebook.remove_code_def(id)
+                    .context("Failed to delete code")?;
+                state.mark_modified();
+                Ok(ActionResult::Success)
+            }
+            SchemaAction::CreateTheme { name, color } => {
+                let id = state.codebook.create_theme(name, color);
+                state.mark_modified();
+                Ok(ActionResult::ThemeCreated(id))
+            }
+            SchemaAction::RenameTheme { id, name } => {
+                let theme = state.codebook.theme_mut(id)
+                    .ok_or(CodeBookError::ThemeNotFound(id))
+                    .context("Failed to rename theme")?;
+                theme.set_name(name);
+                state.mark_modified();
+                Ok(ActionResult::Success)
+            }
+            SchemaAction::UpdateThemeColor { id, color } => {
+                let theme = state.codebook.theme_mut(id)
+                    .ok_or(CodeBookError::ThemeNotFound(id))
+                    .context("Failed to update theme color")?;
+                theme.set_color(color);
+                state.mark_modified();
+                Ok(ActionResult::Success)
+            }
+            SchemaAction::DeleteTheme { id } => {
+                state.codebook.remove_theme(id)
+                    .context("Failed to delete theme")?;
+                state.mark_modified();
+                Ok(ActionResult::Success)
+            }
+            SchemaAction::AssignCodeToTheme { code_id, theme_id } => {
+                state.codebook.move_code_to_theme(code_id, theme_id)
+                    .context("Failed to assign code to theme")?;
+                state.mark_modified();
+                Ok(ActionResult::Success)
+            }
+            SchemaAction::RemoveCodeFromTheme { code_id } => {
+                state.codebook.remove_code_from_theme(code_id)
+                    .context("Failed to remove code from theme")?;
+                state.mark_modified();
+                Ok(ActionResult::Success)
             }
         }
     }
 
     fn handle_coding_action(&self, action: CodingAction) -> Result<ActionResult> {
+        let state = self.write_state();
+        if !state.is_loaded() { bail!("No project loaded"); }
+        drop(state);
+
         match action {
             CodingAction::ApplyCode { code_def_id, highlight, snippet } => {
-                todo!("build out code creation")
+                todo!("build out code application")
             }
         }
     }

@@ -94,6 +94,16 @@ async fn create_test_controller() -> AppController<MockProjectRepo, MockFileHand
         .expect("controller creation should succeed")
 }
 
+/// Creates a test controller with a project already loaded (so is_loaded() returns true).
+async fn create_test_controller_with_project() -> AppController<MockProjectRepo, MockFileHandler, MockConfigStore> {
+    let controller = create_test_controller().await;
+    controller.handle_action(Action::Project(ProjectAction::NewProject {
+        path: PathBuf::from("/tmp/test_project.json"),
+        name: "Test Project".to_string(),
+    })).await.expect("NewProject should succeed");
+    controller
+}
+
 // ===== Save Guard Tests =====
 
 mod save_guard {
@@ -170,7 +180,7 @@ mod file_actions {
     #[tokio::test]
     async fn test_import_file_returns_file_imported() {
         // Setup
-        let controller = create_test_controller().await;
+        let controller = create_test_controller_with_project().await;
         let tmp = create_temp_file("hello");
 
         // Execute
@@ -200,6 +210,11 @@ mod file_actions {
         )
         .await
         .unwrap();
+
+        controller.handle_action(Action::Project(ProjectAction::NewProject {
+            path: PathBuf::from("/tmp/test_blocks.json"),
+            name: "Test".to_string(),
+        })).await.unwrap();
 
         let tmp = create_temp_file("ignored by mock");
 
@@ -236,6 +251,11 @@ mod file_actions {
         .await
         .unwrap();
 
+        controller.handle_action(Action::Project(ProjectAction::NewProject {
+            path: PathBuf::from("/tmp/test_name.json"),
+            name: "Test".to_string(),
+        })).await.unwrap();
+
         let tmp = create_temp_file("content");
 
         // Execute
@@ -257,7 +277,7 @@ mod file_actions {
     #[tokio::test]
     async fn test_import_file_duplicate_path_returns_error() {
         // Setup
-        let controller = create_test_controller().await;
+        let controller = create_test_controller_with_project().await;
         let tmp = create_temp_file("hello");
         let path = tmp.path().to_path_buf();
 
@@ -324,7 +344,7 @@ mod file_actions {
     #[tokio::test]
     async fn test_remove_file_returns_file_removed() {
         // Setup
-        let controller = create_test_controller().await;
+        let controller = create_test_controller_with_project().await;
         let tmp = create_temp_file("content");
         let import_result = controller
             .handle_action(Action::File(FileAction::ImportFile(tmp.path().to_path_buf())))
@@ -363,6 +383,11 @@ mod file_actions {
         .await
         .unwrap();
 
+        controller.handle_action(Action::Project(ProjectAction::NewProject {
+            path: PathBuf::from("/tmp/test_cascade.json"),
+            name: "Test".to_string(),
+        })).await.unwrap();
+
         let tmp = create_temp_file("ignored");
         let import_result = controller
             .handle_action(Action::File(FileAction::ImportFile(tmp.path().to_path_buf())))
@@ -378,7 +403,7 @@ mod file_actions {
             let mut s = state.write().unwrap();
             let blocks = s.filemanager.file(file_id).unwrap().blocks().unwrap();
             let block_id = blocks[0].id;
-            let code_def_id = s.codebook.create_code_def("Test Code".to_string(), 1, None);
+            let code_def_id = s.codebook.create_code_def("Test Code".to_string(), 1, None).unwrap();
             let highlight = Highlight::new(block_id, 0, 5);
             s.codebook.apply_code(code_def_id, highlight, "Block".to_string(), "".to_string(), " one.".to_string());
         }
@@ -477,6 +502,11 @@ mod file_actions {
         )
         .await
         .unwrap();
+
+        controller.handle_action(Action::Project(ProjectAction::NewProject {
+            path: PathBuf::from("/tmp/test_reload.json"),
+            name: "Test".to_string(),
+        })).await.unwrap();
 
         // Import a file
         let tmp1 = create_temp_file("original");
@@ -668,5 +698,759 @@ mod file_id_correctness {
         for block in &blocks {
             assert_eq!(block.file_id, file_id, "All blocks should have the same file_id");
         }
+    }
+}
+
+// ===== Tests for AppState::is_loaded =====
+
+mod is_loaded_tests {
+    use super::*;
+
+    #[test]
+    fn test_is_loaded_returns_false_for_empty() {
+        // Setup
+        let state = AppState::new(DataState::Empty, AppConfig::default());
+
+        // Assert
+        assert!(!state.is_loaded(), "Empty state should not be loaded");
+    }
+
+    #[test]
+    fn test_is_loaded_returns_true_for_loaded() {
+        // Setup
+        let now = chrono::Utc::now();
+        let project = QualProject::new("Test".to_string(), 1, now, now);
+        let ctx = ProjectContext::new(PathBuf::from("/tmp/test.json"), project);
+        let state = AppState::new(DataState::Loaded(ctx), AppConfig::default());
+
+        // Assert
+        assert!(state.is_loaded(), "Loaded state should be loaded");
+    }
+
+    #[test]
+    fn test_is_loaded_returns_true_for_modified() {
+        // Setup
+        let now = chrono::Utc::now();
+        let project = QualProject::new("Test".to_string(), 1, now, now);
+        let ctx = ProjectContext::new(PathBuf::from("/tmp/test.json"), project);
+        let state = AppState::new(DataState::Modified(ctx), AppConfig::default());
+
+        // Assert
+        assert!(state.is_loaded(), "Modified state should be loaded");
+    }
+
+    #[test]
+    fn test_is_loaded_returns_false_for_error() {
+        // Setup
+        let state = AppState::new(DataState::Error, AppConfig::default());
+
+        // Assert
+        assert!(!state.is_loaded(), "Error state should not be loaded");
+    }
+}
+
+// ===== Tests for schema actions =====
+
+mod schema_action_tests {
+    use super::*;
+
+    /// Helper: creates a controller and loads a project so is_loaded() passes
+    async fn setup_controller_with_project() -> AppController<MockProjectRepo, MockFileHandler, MockConfigStore> {
+        let controller = create_test_controller().await;
+        controller.handle_action(Action::Project(ProjectAction::NewProject {
+            path: PathBuf::from("/tmp/schema_test.json"),
+            name: "Schema Test".to_string(),
+        })).await.expect("NewProject should succeed");
+        controller
+    }
+
+    // ----- Happy path tests -----
+
+    #[tokio::test]
+    async fn test_create_code_happy_path_returns_code_created() {
+        // Setup
+        let controller = setup_controller_with_project().await;
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::CreateCode {
+            name: "TestCode".to_string(),
+            color: 1,
+            theme_id: None,
+        })).await;
+
+        // Assert
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ActionResult::CodeCreated(_) => {}
+            _ => panic!("Expected CodeCreated"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_rename_code_happy_path_returns_success() {
+        // Setup
+        let controller = setup_controller_with_project().await;
+        let code_id = match controller.handle_action(Action::Schema(SchemaAction::CreateCode {
+            name: "Original".to_string(), color: 1, theme_id: None,
+        })).await.unwrap() {
+            ActionResult::CodeCreated(id) => id,
+            _ => panic!("Expected CodeCreated"),
+        };
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::RenameCode {
+            id: code_id,
+            name: "Renamed".to_string(),
+        })).await;
+
+        // Assert
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ActionResult::Success => {}
+            _ => panic!("Expected Success"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_update_code_color_happy_path_returns_success() {
+        // Setup
+        let controller = setup_controller_with_project().await;
+        let code_id = match controller.handle_action(Action::Schema(SchemaAction::CreateCode {
+            name: "Code".to_string(), color: 1, theme_id: None,
+        })).await.unwrap() {
+            ActionResult::CodeCreated(id) => id,
+            _ => panic!("Expected CodeCreated"),
+        };
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::UpdateCodeColor {
+            id: code_id,
+            color: 42,
+        })).await;
+
+        // Assert
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ActionResult::Success => {}
+            _ => panic!("Expected Success"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_delete_code_happy_path_returns_success() {
+        // Setup
+        let controller = setup_controller_with_project().await;
+        let code_id = match controller.handle_action(Action::Schema(SchemaAction::CreateCode {
+            name: "ToDelete".to_string(), color: 1, theme_id: None,
+        })).await.unwrap() {
+            ActionResult::CodeCreated(id) => id,
+            _ => panic!("Expected CodeCreated"),
+        };
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::DeleteCode {
+            id: code_id,
+        })).await;
+
+        // Assert
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ActionResult::Success => {}
+            _ => panic!("Expected Success"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_create_theme_happy_path_returns_theme_created() {
+        // Setup
+        let controller = setup_controller_with_project().await;
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::CreateTheme {
+            name: "TestTheme".to_string(),
+            color: 5,
+        })).await;
+
+        // Assert
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ActionResult::ThemeCreated(_) => {}
+            _ => panic!("Expected ThemeCreated"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_rename_theme_happy_path_returns_success() {
+        // Setup
+        let controller = setup_controller_with_project().await;
+        let theme_id = match controller.handle_action(Action::Schema(SchemaAction::CreateTheme {
+            name: "Original".to_string(), color: 1,
+        })).await.unwrap() {
+            ActionResult::ThemeCreated(id) => id,
+            _ => panic!("Expected ThemeCreated"),
+        };
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::RenameTheme {
+            id: theme_id,
+            name: "Renamed".to_string(),
+        })).await;
+
+        // Assert
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ActionResult::Success => {}
+            _ => panic!("Expected Success"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_update_theme_color_happy_path_returns_success() {
+        // Setup
+        let controller = setup_controller_with_project().await;
+        let theme_id = match controller.handle_action(Action::Schema(SchemaAction::CreateTheme {
+            name: "Theme".to_string(), color: 1,
+        })).await.unwrap() {
+            ActionResult::ThemeCreated(id) => id,
+            _ => panic!("Expected ThemeCreated"),
+        };
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::UpdateThemeColor {
+            id: theme_id,
+            color: 99,
+        })).await;
+
+        // Assert
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ActionResult::Success => {}
+            _ => panic!("Expected Success"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_delete_theme_happy_path_returns_success() {
+        // Setup
+        let controller = setup_controller_with_project().await;
+        let theme_id = match controller.handle_action(Action::Schema(SchemaAction::CreateTheme {
+            name: "ToDelete".to_string(), color: 1,
+        })).await.unwrap() {
+            ActionResult::ThemeCreated(id) => id,
+            _ => panic!("Expected ThemeCreated"),
+        };
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::DeleteTheme {
+            id: theme_id,
+        })).await;
+
+        // Assert
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ActionResult::Success => {}
+            _ => panic!("Expected Success"),
+        }
+    }
+
+    // ----- No project loaded tests -----
+
+    #[tokio::test]
+    async fn test_schema_action_returns_error_when_no_project_loaded() {
+        // Setup: controller with no project loaded
+        let controller = create_test_controller().await;
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::CreateCode {
+            name: "Code".to_string(), color: 1, theme_id: None,
+        })).await;
+
+        // Assert
+        match result {
+            Err(err) => {
+                let err_msg = format!("{}", err);
+                assert!(
+                    err_msg.contains("No project loaded"),
+                    "Error should mention no project loaded, got: {}",
+                    err_msg
+                );
+            }
+            Ok(_) => panic!("Expected error when no project loaded"),
+        }
+    }
+
+    // ----- Error cases for nonexistent IDs -----
+
+    /// Creates a CodeDefId that no longer exists in the codebook (create then delete).
+    async fn stale_code_def_id(controller: &AppController<MockProjectRepo, MockFileHandler, MockConfigStore>) -> CodeDefId {
+        let id = match controller.handle_action(Action::Schema(SchemaAction::CreateCode {
+            name: "Stale".to_string(), color: 0, theme_id: None,
+        })).await.unwrap() {
+            ActionResult::CodeCreated(id) => id,
+            _ => panic!("Expected CodeCreated"),
+        };
+        controller.handle_action(Action::Schema(SchemaAction::DeleteCode { id }))
+            .await.unwrap();
+        id
+    }
+
+    /// Creates a ThemeId that no longer exists in the codebook (create then delete).
+    async fn stale_theme_id(controller: &AppController<MockProjectRepo, MockFileHandler, MockConfigStore>) -> ThemeId {
+        let id = match controller.handle_action(Action::Schema(SchemaAction::CreateTheme {
+            name: "Stale".to_string(), color: 0,
+        })).await.unwrap() {
+            ActionResult::ThemeCreated(id) => id,
+            _ => panic!("Expected ThemeCreated"),
+        };
+        controller.handle_action(Action::Schema(SchemaAction::DeleteTheme { id }))
+            .await.unwrap();
+        id
+    }
+
+    #[tokio::test]
+    async fn test_rename_code_nonexistent_id_returns_error() {
+        // Setup
+        let controller = setup_controller_with_project().await;
+        let fake_id = stale_code_def_id(&controller).await;
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::RenameCode {
+            id: fake_id, name: "X".to_string(),
+        })).await;
+
+        // Assert
+        assert!(result.is_err(), "RenameCode with nonexistent ID should fail");
+    }
+
+    #[tokio::test]
+    async fn test_update_code_color_nonexistent_id_returns_error() {
+        // Setup
+        let controller = setup_controller_with_project().await;
+        let fake_id = stale_code_def_id(&controller).await;
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::UpdateCodeColor {
+            id: fake_id, color: 1,
+        })).await;
+
+        // Assert
+        assert!(result.is_err(), "UpdateCodeColor with nonexistent ID should fail");
+    }
+
+    #[tokio::test]
+    async fn test_delete_code_nonexistent_id_returns_error() {
+        // Setup
+        let controller = setup_controller_with_project().await;
+        let fake_id = stale_code_def_id(&controller).await;
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::DeleteCode {
+            id: fake_id,
+        })).await;
+
+        // Assert
+        assert!(result.is_err(), "DeleteCode with nonexistent ID should fail");
+    }
+
+    #[tokio::test]
+    async fn test_rename_theme_nonexistent_id_returns_error() {
+        // Setup
+        let controller = setup_controller_with_project().await;
+        let fake_id = stale_theme_id(&controller).await;
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::RenameTheme {
+            id: fake_id, name: "X".to_string(),
+        })).await;
+
+        // Assert
+        assert!(result.is_err(), "RenameTheme with nonexistent ID should fail");
+    }
+
+    #[tokio::test]
+    async fn test_update_theme_color_nonexistent_id_returns_error() {
+        // Setup
+        let controller = setup_controller_with_project().await;
+        let fake_id = stale_theme_id(&controller).await;
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::UpdateThemeColor {
+            id: fake_id, color: 1,
+        })).await;
+
+        // Assert
+        assert!(result.is_err(), "UpdateThemeColor with nonexistent ID should fail");
+    }
+
+    #[tokio::test]
+    async fn test_delete_theme_nonexistent_id_returns_error() {
+        // Setup
+        let controller = setup_controller_with_project().await;
+        let fake_id = stale_theme_id(&controller).await;
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::DeleteTheme {
+            id: fake_id,
+        })).await;
+
+        // Assert
+        assert!(result.is_err(), "DeleteTheme with nonexistent ID should fail");
+    }
+
+    // ----- CreateCode with invalid theme_id -----
+
+    #[tokio::test]
+    async fn test_create_code_with_invalid_theme_id_returns_error() {
+        // Setup
+        let controller = setup_controller_with_project().await;
+        let fake_theme = stale_theme_id(&controller).await;
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::CreateCode {
+            name: "Code".to_string(), color: 1, theme_id: Some(fake_theme),
+        })).await;
+
+        // Assert
+        assert!(result.is_err(), "CreateCode with invalid theme_id should fail");
+    }
+
+    // ----- DeleteCode cascades QualCode removal -----
+
+    #[tokio::test]
+    async fn test_delete_code_cascades_qual_code_removal() {
+        // Setup
+        let state = Arc::new(RwLock::new(AppState::new(DataState::Empty, AppConfig::default())));
+        let controller = AppController::new(
+            state.clone(), MockProjectRepo, MockFileHandler::new(), MockConfigStore,
+        ).await.unwrap();
+
+        controller.handle_action(Action::Project(ProjectAction::NewProject {
+            path: PathBuf::from("/tmp/cascade_test.json"),
+            name: "Cascade".to_string(),
+        })).await.unwrap();
+
+        // Create a code def and apply qual codes
+        let code_id = {
+            let mut s = state.write().unwrap();
+            let code_id = s.codebook.create_code_def("CascadeCode".to_string(), 1, None).unwrap();
+            let file_id = FileId::generate();
+            let block = TextBlock::new(file_id, 0, "test content".to_string());
+            let block_id = block.id;
+            s.filemanager.add_file(file_id, "test.txt".to_string(), "test.txt".to_string(), FileType::PlainText, vec![block]);
+            let highlight = Highlight::new(block_id, 0, 5);
+            s.codebook.apply_code(code_id, highlight, "test".to_string(), "".to_string(), " content".to_string());
+            code_id
+        };
+
+        // Verify qual code exists
+        {
+            let s = state.read().unwrap();
+            assert_eq!(s.codebook.get_all_qual_codes().len(), 1, "Should have 1 qual code before delete");
+        }
+
+        // Execute: delete the code def via schema action
+        let result = controller.handle_action(Action::Schema(SchemaAction::DeleteCode {
+            id: code_id,
+        })).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let s = state.read().unwrap();
+        assert_eq!(s.codebook.get_all_qual_codes().len(), 0, "Qual codes should be cascade-deleted");
+        assert!(s.codebook.code_def(code_id).is_none(), "Code def should be removed");
+    }
+
+    // ----- AssignCodeToTheme / RemoveCodeFromTheme -----
+
+    #[tokio::test]
+    async fn test_assign_code_to_theme_happy_path_returns_success() {
+        // Setup
+        let controller = setup_controller_with_project().await;
+        let theme_id = match controller.handle_action(Action::Schema(SchemaAction::CreateTheme {
+            name: "Theme".to_string(), color: 1,
+        })).await.unwrap() {
+            ActionResult::ThemeCreated(id) => id,
+            _ => panic!("Expected ThemeCreated"),
+        };
+        let code_id = match controller.handle_action(Action::Schema(SchemaAction::CreateCode {
+            name: "Code".to_string(), color: 1, theme_id: None,
+        })).await.unwrap() {
+            ActionResult::CodeCreated(id) => id,
+            _ => panic!("Expected CodeCreated"),
+        };
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::AssignCodeToTheme {
+            code_id, theme_id,
+        })).await;
+
+        // Assert
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ActionResult::Success => {}
+            _ => panic!("Expected Success"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_remove_code_from_theme_happy_path_returns_success() {
+        // Setup
+        let controller = setup_controller_with_project().await;
+        let theme_id = match controller.handle_action(Action::Schema(SchemaAction::CreateTheme {
+            name: "Theme".to_string(), color: 1,
+        })).await.unwrap() {
+            ActionResult::ThemeCreated(id) => id,
+            _ => panic!("Expected ThemeCreated"),
+        };
+        let code_id = match controller.handle_action(Action::Schema(SchemaAction::CreateCode {
+            name: "Code".to_string(), color: 1, theme_id: Some(theme_id),
+        })).await.unwrap() {
+            ActionResult::CodeCreated(id) => id,
+            _ => panic!("Expected CodeCreated"),
+        };
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::RemoveCodeFromTheme {
+            code_id,
+        })).await;
+
+        // Assert
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ActionResult::Success => {}
+            _ => panic!("Expected Success"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_assign_code_to_theme_nonexistent_code_returns_error() {
+        // Setup
+        let controller = setup_controller_with_project().await;
+        let theme_id = match controller.handle_action(Action::Schema(SchemaAction::CreateTheme {
+            name: "Theme".to_string(), color: 1,
+        })).await.unwrap() {
+            ActionResult::ThemeCreated(id) => id,
+            _ => panic!("Expected ThemeCreated"),
+        };
+        let fake_code = stale_code_def_id(&controller).await;
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::AssignCodeToTheme {
+            code_id: fake_code, theme_id,
+        })).await;
+
+        // Assert
+        assert!(result.is_err(), "AssignCodeToTheme with nonexistent code should fail");
+    }
+
+    #[tokio::test]
+    async fn test_assign_code_to_theme_nonexistent_theme_returns_error() {
+        // Setup
+        let controller = setup_controller_with_project().await;
+        let code_id = match controller.handle_action(Action::Schema(SchemaAction::CreateCode {
+            name: "Code".to_string(), color: 1, theme_id: None,
+        })).await.unwrap() {
+            ActionResult::CodeCreated(id) => id,
+            _ => panic!("Expected CodeCreated"),
+        };
+        let fake_theme = stale_theme_id(&controller).await;
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::AssignCodeToTheme {
+            code_id, theme_id: fake_theme,
+        })).await;
+
+        // Assert
+        assert!(result.is_err(), "AssignCodeToTheme with nonexistent theme should fail");
+    }
+
+    #[tokio::test]
+    async fn test_remove_code_from_theme_nonexistent_code_returns_error() {
+        // Setup
+        let controller = setup_controller_with_project().await;
+        let fake_code = stale_code_def_id(&controller).await;
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::RemoveCodeFromTheme {
+            code_id: fake_code,
+        })).await;
+
+        // Assert
+        assert!(result.is_err(), "RemoveCodeFromTheme with nonexistent code should fail");
+    }
+
+    #[tokio::test]
+    async fn test_assign_code_to_theme_no_project_loaded_returns_error() {
+        // Setup: get valid IDs from a project, then use a fresh controller with no project
+        let setup_controller = setup_controller_with_project().await;
+        let code_id = stale_code_def_id(&setup_controller).await;
+        let theme_id = stale_theme_id(&setup_controller).await;
+
+        let controller = create_test_controller().await;
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::AssignCodeToTheme {
+            code_id, theme_id,
+        })).await;
+
+        // Assert
+        match result {
+            Err(err) => {
+                let err_msg = format!("{}", err);
+                assert!(
+                    err_msg.contains("No project loaded"),
+                    "Error should mention no project loaded, got: {}",
+                    err_msg
+                );
+            }
+            Ok(_) => panic!("Expected error when no project loaded"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_remove_code_from_theme_no_project_loaded_returns_error() {
+        // Setup: get a valid ID from a project, then use a fresh controller with no project
+        let setup_controller = setup_controller_with_project().await;
+        let code_id = stale_code_def_id(&setup_controller).await;
+
+        let controller = create_test_controller().await;
+
+        // Execute
+        let result = controller.handle_action(Action::Schema(SchemaAction::RemoveCodeFromTheme {
+            code_id,
+        })).await;
+
+        // Assert
+        match result {
+            Err(err) => {
+                let err_msg = format!("{}", err);
+                assert!(
+                    err_msg.contains("No project loaded"),
+                    "Error should mention no project loaded, got: {}",
+                    err_msg
+                );
+            }
+            Ok(_) => panic!("Expected error when no project loaded"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_assign_code_to_theme_updates_code_def_theme_id() {
+        // Setup
+        let state = Arc::new(RwLock::new(AppState::new(DataState::Empty, AppConfig::default())));
+        let controller = AppController::new(
+            state.clone(), MockProjectRepo, MockFileHandler::new(), MockConfigStore,
+        ).await.unwrap();
+
+        controller.handle_action(Action::Project(ProjectAction::NewProject {
+            path: PathBuf::from("/tmp/assign_verify.json"),
+            name: "AssignVerify".to_string(),
+        })).await.unwrap();
+
+        let (theme_id, code_id) = {
+            let mut s = state.write().unwrap();
+            let tid = s.codebook.create_theme("Theme".to_string(), 1);
+            let cid = s.codebook.create_code_def("Code".to_string(), 1, None).unwrap();
+            (tid, cid)
+        };
+
+        // Verify code starts with no theme
+        {
+            let s = state.read().unwrap();
+            assert_eq!(s.codebook.code_def(code_id).unwrap().theme_id(), None);
+        }
+
+        // Execute
+        controller.handle_action(Action::Schema(SchemaAction::AssignCodeToTheme {
+            code_id, theme_id,
+        })).await.unwrap();
+
+        // Assert: verify state was actually updated
+        let s = state.read().unwrap();
+        assert_eq!(
+            s.codebook.code_def(code_id).unwrap().theme_id(),
+            Some(theme_id),
+            "Code's theme_id should be set after AssignCodeToTheme"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_remove_code_from_theme_sets_theme_id_to_none() {
+        // Setup
+        let state = Arc::new(RwLock::new(AppState::new(DataState::Empty, AppConfig::default())));
+        let controller = AppController::new(
+            state.clone(), MockProjectRepo, MockFileHandler::new(), MockConfigStore,
+        ).await.unwrap();
+
+        controller.handle_action(Action::Project(ProjectAction::NewProject {
+            path: PathBuf::from("/tmp/remove_verify.json"),
+            name: "RemoveVerify".to_string(),
+        })).await.unwrap();
+
+        let (theme_id, code_id) = {
+            let mut s = state.write().unwrap();
+            let tid = s.codebook.create_theme("Theme".to_string(), 1);
+            let cid = s.codebook.create_code_def("Code".to_string(), 1, Some(tid)).unwrap();
+            (tid, cid)
+        };
+
+        // Verify code starts with theme assigned
+        {
+            let s = state.read().unwrap();
+            assert_eq!(s.codebook.code_def(code_id).unwrap().theme_id(), Some(theme_id));
+        }
+
+        // Execute
+        controller.handle_action(Action::Schema(SchemaAction::RemoveCodeFromTheme {
+            code_id,
+        })).await.unwrap();
+
+        // Assert: verify theme_id is now None
+        let s = state.read().unwrap();
+        assert_eq!(
+            s.codebook.code_def(code_id).unwrap().theme_id(),
+            None,
+            "Code's theme_id should be None after RemoveCodeFromTheme"
+        );
+    }
+
+    // ----- DeleteTheme unassigns CodeDefs -----
+
+    #[tokio::test]
+    async fn test_delete_theme_unassigns_code_defs() {
+        // Setup
+        let state = Arc::new(RwLock::new(AppState::new(DataState::Empty, AppConfig::default())));
+        let controller = AppController::new(
+            state.clone(), MockProjectRepo, MockFileHandler::new(), MockConfigStore,
+        ).await.unwrap();
+
+        controller.handle_action(Action::Project(ProjectAction::NewProject {
+            path: PathBuf::from("/tmp/unassign_test.json"),
+            name: "Unassign".to_string(),
+        })).await.unwrap();
+
+        // Create theme and code defs assigned to it
+        let (theme_id, code_id_1, code_id_2) = {
+            let mut s = state.write().unwrap();
+            let tid = s.codebook.create_theme("Theme".to_string(), 1);
+            let c1 = s.codebook.create_code_def("Code1".to_string(), 1, Some(tid)).unwrap();
+            let c2 = s.codebook.create_code_def("Code2".to_string(), 2, Some(tid)).unwrap();
+            (tid, c1, c2)
+        };
+
+        // Execute: delete the theme
+        let result = controller.handle_action(Action::Schema(SchemaAction::DeleteTheme {
+            id: theme_id,
+        })).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let s = state.read().unwrap();
+        assert!(s.codebook.theme(theme_id).is_none(), "Theme should be removed");
+        // Code defs should still exist but with theme_id set to None
+        let c1 = s.codebook.code_def(code_id_1).expect("Code1 should still exist");
+        let c2 = s.codebook.code_def(code_id_2).expect("Code2 should still exist");
+        assert_eq!(c1.theme_id(), None, "Code1 should be unassigned from theme");
+        assert_eq!(c2.theme_id(), None, "Code2 should be unassigned from theme");
     }
 }
