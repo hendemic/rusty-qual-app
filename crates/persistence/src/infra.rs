@@ -110,12 +110,6 @@ impl LocalFileHandler {
 
 #[async_trait]
 impl FileHandler for LocalFileHandler {
-    async fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
-        fs::canonicalize(path)
-            .await
-            .with_context(|| format!("Failed to canonicalize path: {}", path.display()))
-    }
-
     async fn detect_type(&self, path: &Path) -> Result<FileType> {
         let ext = path
             .extension()

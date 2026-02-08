@@ -66,10 +66,6 @@ impl FileHandler for MockFileHandler {
     async fn detect_type(&self, _path: &Path) -> Result<FileType> {
         Ok(self.file_type)
     }
-
-    async fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
-        Ok(path.to_path_buf())
-    }
 }
 
 struct MockConfigStore;

@@ -212,7 +212,7 @@ where
     async fn handle_file_action(&self, action: FileAction) -> Result<ActionResult> {
         match action {
             FileAction::ImportFile(path) => {
-                let canonical = self.file_loader.canonicalize(&path).await
+                let canonical = path.canonicalize()
                     .context("Failed to canonicalize file path")?;
                 let canonical_str = path_to_string(&canonical)?;
 
@@ -250,7 +250,7 @@ where
                 Ok(ActionResult::FileRemoved(id))
             }
             FileAction::ReloadFile(id, path) => {
-                let canonical = self.file_loader.canonicalize(&path).await
+                let canonical = path.canonicalize()
                     .context("Failed to canonicalize file path")?;
                 let canonical_str = path_to_string(&canonical)?;
 
