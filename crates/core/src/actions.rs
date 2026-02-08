@@ -45,8 +45,10 @@
         ApplyCode {
             code_def_id: CodeDefId,
             highlight: Highlight,
-            snippet: String,
         },
+        DeleteCode { id: QualCodeId },
+        ReassignCode { id: QualCodeId, new_def_id: CodeDefId },
+        EditHighlight { id: QualCodeId, new_highlight: Highlight },
     }
     #[derive(Debug)]
     pub enum ActionResult {

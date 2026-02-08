@@ -78,6 +78,9 @@ pub enum FileListError {
     FileNotFound(FileId),
     DuplicatePath(String),
     InvalidIndex { provided: usize, max: usize },
+    BlockNotFound(BlockId),
+    BlocksInDifferentFiles,
+    InvalidBlockOrder,
 }
 
 impl fmt::Display for FileListError {
@@ -88,6 +91,9 @@ impl fmt::Display for FileListError {
             FileListError::InvalidIndex { provided, max } => {
                 write!(f, "Invalid index: {} (max valid index is {})", provided, max)
             }
+            FileListError::BlockNotFound(id) => write!(f, "Block not found: {:?}", id),
+            FileListError::BlocksInDifferentFiles => write!(f, "Start and end blocks belong to different files"),
+            FileListError::InvalidBlockOrder => write!(f, "Start block sequence must be <= end block sequence"),
         }
     }
 }
@@ -170,27 +176,28 @@ impl QualProject {
     pub fn schema_version(&self) -> u32 { self.schema_version }
 }
 
-///Passed from front end into QualCode when generated
+/// Highlight representing a selected range across one or more TextBlocks.
+/// For single-block highlights, start_block == end_block.
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Highlight {
-    block_id: BlockId,
+    start_block: BlockId,
     start: usize,
+    end_block: BlockId,
     end: usize,
 }
 
 impl Highlight {
-    pub fn new(block_id: BlockId, start: usize, end: usize) -> Self {
-        let (start, end) = if start > end { (end, start) } else { (start, end) };
-        Highlight { block_id, start, end }
+    pub fn new(start_block: BlockId, start: usize, end_block: BlockId, end: usize) -> Self {
+        debug_assert!(
+            start_block != end_block || start <= end,
+            "Single-block highlight: start must be <= end"
+        );
+        Highlight { start_block, start, end_block, end }
     }
-    pub fn len(&self) -> usize {
-        self.end - self.start
-    }
-    pub fn is_empty(&self) -> bool {
-        self.start == self.end
-    }
-    pub fn block_id(&self) -> BlockId { self.block_id }
+    pub fn start_block(&self) -> BlockId { self.start_block }
+    pub fn end_block(&self) -> BlockId { self.end_block }
+    pub fn is_multi_block(&self) -> bool { self.start_block != self.end_block }
     pub fn start(&self) -> usize { self.start }
     pub fn end(&self) -> usize { self.end }
 }
@@ -199,7 +206,7 @@ impl Highlight {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeDef {
-    pub id: CodeDefId,
+    id: CodeDefId,
     name: String,
     color: u8,
     theme_id: Option<ThemeId>,
@@ -211,6 +218,7 @@ impl CodeDef {
         let id = CodeDefId(Uuid::new_v4());
         CodeDef { id, name, color, theme_id: None }
     }
+    pub fn id(&self) -> CodeDefId { self.id }
     pub fn theme_id(&self) -> Option<ThemeId> { self.theme_id }
     pub fn set_theme_id(&mut self, theme_id: Option<ThemeId>) { self.theme_id = theme_id; }
     pub fn name(&self) -> &str { &self.name }
@@ -222,7 +230,7 @@ impl CodeDef {
 /// Highlighted instance of a Code in a given file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QualCode {
-    pub id: QualCodeId,
+    id: QualCodeId,
     def_id: CodeDefId,
     highlight: Highlight,
     snippet: String,
@@ -236,16 +244,25 @@ impl QualCode {
         let id = QualCodeId(Uuid::new_v4());
         QualCode { id, def_id, highlight, snippet, context_before, context_after }
     }
+    pub fn id(&self) -> QualCodeId { self.id }
     pub fn def_id(&self) -> CodeDefId { self.def_id }
-    pub fn block_id(&self) -> BlockId { self.highlight.block_id() }
+    pub fn set_def_id(&mut self, def_id: CodeDefId) { self.def_id = def_id; }
+    pub fn start_block_id(&self) -> BlockId { self.highlight.start_block() }
+    pub fn end_block_id(&self) -> BlockId { self.highlight.end_block() }
     pub fn position(&self) -> (usize, usize) { (self.highlight.start(), self.highlight.end()) }
     pub fn snippet(&self) -> &str { &self.snippet }
+    pub fn update_highlight(&mut self, highlight: Highlight, snippet: String, context_before: String, context_after: String) {
+        self.highlight = highlight;
+        self.snippet = snippet;
+        self.context_before = context_before;
+        self.context_after = context_after;
+    }
 }
 
 /// Collection of CodeDefs associated with a theme
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThemeDef {
-    pub id: ThemeId,
+    id: ThemeId,
     name: String,
     color: u8,
 }
@@ -256,6 +273,7 @@ impl ThemeDef {
         let id = ThemeId(Uuid::new_v4());
         ThemeDef { id, name, color }
     }
+    pub fn id(&self) -> ThemeId { self.id }
     pub fn name(&self) -> &str { &self.name }
     pub fn set_name(&mut self, name: String) { self.name = name; }
     pub fn color(&self) -> u8 { self.color }
@@ -297,7 +315,7 @@ impl CodeBook {
         }
         let mut code_def = CodeDef::new(name, color);
         code_def.theme_id = theme_id;
-        let id = code_def.id;
+        let id = code_def.id();
         self.code_defs.insert(id, code_def);
         Ok(id)
     }
@@ -348,7 +366,7 @@ impl CodeBook {
 impl CodeBook {
     pub fn create_theme(&mut self, name: String, color: u8) -> ThemeId {
         let theme = ThemeDef::new(name, color);
-        let id = theme.id;
+        let id = theme.id();
         self.themes.insert(id, theme);
         id
     }
@@ -432,12 +450,12 @@ impl CodeBook {
         context_after: String
     ) -> QualCodeId {
             let qual_code = QualCode::new(code_def_id, highlight, snippet, context_before, context_after);
-            let id = qual_code.id;
+            let id = qual_code.id();
             self.qual_codes.push(qual_code);
             id
     }
     pub fn remove_qual_code(&mut self, id: QualCodeId) -> Result<(), CodeBookError> {
-        let pos = self.qual_codes.iter().position(|qc| qc.id == id)
+        let pos = self.qual_codes.iter().position(|qc| qc.id() == id)
             .ok_or(CodeBookError::QualCodeNotFound(id))?;
 
         self.qual_codes.remove(pos);
@@ -449,7 +467,9 @@ impl CodeBook {
         block_file_map: &std::collections::HashMap<BlockId, FileId>,
     ) -> impl Iterator<Item = &QualCode> {
         self.qual_codes.iter().filter(move |qc| {
-            block_file_map.get(&qc.highlight.block_id()).is_some_and(|&fid| fid == file_id)
+            let start_match = block_file_map.get(&qc.highlight.start_block()).is_some_and(|&fid| fid == file_id);
+            let end_match = block_file_map.get(&qc.highlight.end_block()).is_some_and(|&fid| fid == file_id);
+            start_match || end_match
         })
     }
     pub fn remove_codes_for_file(
@@ -458,11 +478,17 @@ impl CodeBook {
         block_file_map: &std::collections::HashMap<BlockId, FileId>,
     ) {
         self.qual_codes.retain(|qc| {
-            block_file_map.get(&qc.highlight.block_id()).is_none_or(|&fid| fid != file_id)
+            let start_belongs = block_file_map.get(&qc.highlight.start_block()).is_some_and(|&fid| fid == file_id);
+            let end_belongs = block_file_map.get(&qc.highlight.end_block()).is_some_and(|&fid| fid == file_id);
+            !start_belongs && !end_belongs
         });
     }
     pub fn get_codes_for_def(&self, def_id: CodeDefId) -> impl Iterator<Item = &QualCode> {
         self.qual_codes.iter().filter(move |qc| qc.def_id == def_id)
+    }
+
+    pub fn qual_code_mut(&mut self, id: QualCodeId) -> Option<&mut QualCode> {
+        self.qual_codes.iter_mut().find(|qc| qc.id() == id)
     }
 
     pub fn get_all_qual_codes(&self) -> &[QualCode] {
@@ -483,19 +509,22 @@ pub enum FileType {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextBlock {
-    pub id: BlockId,
+    id: BlockId,
     pub file_id: FileId,
     pub sequence: usize,
     pub content: String,
+    pub separator: String,
 }
 
 impl TextBlock {
-    pub fn new(file_id: FileId, sequence: usize, content: String) -> Self {
+    pub fn id(&self) -> BlockId { self.id }
+    pub fn new(file_id: FileId, sequence: usize, content: String, separator: String) -> Self {
         Self {
             id: BlockId(Uuid::new_v4()),
             file_id,
             sequence,
             content,
+            separator,
         }
     }
 }
@@ -503,7 +532,7 @@ impl TextBlock {
 ///File and its data and metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QualFile {
-    pub id: FileId,
+    id: FileId,
     name: String,
     path: String,
     imported_at: DateTime<Utc>,
@@ -516,6 +545,7 @@ impl QualFile {
         QualFile { id, name, path, imported_at: Utc::now(), data_state: DataState::Loaded(blocks), file_type }
     }
 
+    pub fn id(&self) -> FileId { self.id }
     pub fn name(&self) -> &str { &self.name }
     pub fn path(&self) -> &str { &self.path }
     pub fn file_type(&self) -> &FileType { &self.file_type }
@@ -601,11 +631,61 @@ impl FileList {
         for file in self.files.values() {
             if let Some(blocks) = file.blocks() {
                 for block in blocks {
-                    map.insert(block.id, file.id);
+                    map.insert(block.id(), file.id());
                 }
             }
         }
         map
+    }
+
+    /// Linear scan across all files to find a block by ID.
+    pub fn find_block(&self, block_id: BlockId) -> Option<&TextBlock> {
+        self.files.values().find_map(|file| {
+            file.blocks()?.iter().find(|b| b.id() == block_id)
+        })
+    }
+
+    /// Returns all blocks in the range [start_block..=end_block] in sequence order.
+    /// Both blocks must exist, belong to the same file, and start must precede or equal end.
+    pub fn find_blocks_in_range(
+        &self,
+        start_block: BlockId,
+        end_block: BlockId,
+    ) -> Result<Vec<&TextBlock>, FileListError> {
+        // Find which file contains the start block
+        let (start_file_id, start_seq) = self.files.values()
+            .find_map(|file| {
+                file.blocks()?.iter()
+                    .find(|b| b.id() == start_block)
+                    .map(|b| (file.id(), b.sequence))
+            })
+            .ok_or(FileListError::BlockNotFound(start_block))?;
+
+        // Find which file contains the end block
+        let (end_file_id, end_seq) = self.files.values()
+            .find_map(|file| {
+                file.blocks()?.iter()
+                    .find(|b| b.id() == end_block)
+                    .map(|b| (file.id(), b.sequence))
+            })
+            .ok_or(FileListError::BlockNotFound(end_block))?;
+
+        if start_file_id != end_file_id {
+            return Err(FileListError::BlocksInDifferentFiles);
+        }
+
+        if start_seq > end_seq {
+            return Err(FileListError::InvalidBlockOrder);
+        }
+
+        let file = self.files.get(&start_file_id).unwrap();
+        let blocks: Vec<&TextBlock> = file.blocks()
+            .unwrap()
+            .iter()
+            .filter(|b| b.sequence >= start_seq && b.sequence <= end_seq)
+            .collect();
+
+        Ok(blocks)
     }
 }
 

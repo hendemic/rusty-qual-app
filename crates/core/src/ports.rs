@@ -1,5 +1,5 @@
 use crate::domain::{QualProject, CodeBook, FileList, FileType, AppConfig};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use anyhow::Result;
 use async_trait::async_trait;
 
@@ -31,11 +31,12 @@ pub trait ProjectRepository {
 pub trait FileHandler {
     async fn read_file_content(&self, path: &Path) -> Result<String>;
     async fn detect_type(&self, path: &Path) -> Result<FileType>;
+    async fn canonicalize(&self, path: &Path) -> Result<PathBuf>;
 }
 
 #[async_trait]
 pub trait ConfigStore {
     async fn load_config(&self) -> Result<AppConfig>;
-    async fn save_config(&self) -> Result<()>;
+    async fn save_config(&self, config: &AppConfig) -> Result<()>;
     async fn config_exists(&self) -> bool;
 }

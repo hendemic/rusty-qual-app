@@ -66,6 +66,10 @@ impl FileHandler for MockFileHandler {
     async fn detect_type(&self, _path: &Path) -> Result<FileType> {
         Ok(self.file_type)
     }
+
+    async fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
+        Ok(path.to_path_buf())
+    }
 }
 
 struct MockConfigStore;
@@ -76,7 +80,7 @@ impl ConfigStore for MockConfigStore {
         Ok(AppConfig::default())
     }
 
-    async fn save_config(&self) -> Result<()> {
+    async fn save_config(&self, _config: &AppConfig) -> Result<()> {
         Ok(())
     }
 
@@ -402,9 +406,9 @@ mod file_actions {
         {
             let mut s = state.write().unwrap();
             let blocks = s.filemanager.file(file_id).unwrap().blocks().unwrap();
-            let block_id = blocks[0].id;
+            let block_id = blocks[0].id();
             let code_def_id = s.codebook.create_code_def("Test Code".to_string(), 1, None).unwrap();
-            let highlight = Highlight::new(block_id, 0, 5);
+            let highlight = Highlight::new(block_id, 0, block_id, 5);
             s.codebook.apply_code(code_def_id, highlight, "Block".to_string(), "".to_string(), " one.".to_string());
         }
 
@@ -659,6 +663,175 @@ mod empty_content {
 
         // Assert
         assert!(blocks.is_empty());
+    }
+}
+
+// ===== Lossless roundtrip tests (Ticket 4) =====
+
+mod lossless_roundtrip {
+    use super::*;
+
+    /// Reassembles blocks into the original string using the lossless invariant.
+    fn reassemble(blocks: &[TextBlock]) -> String {
+        blocks.iter().map(|b| format!("{}{}", b.content, b.separator)).collect::<String>()
+    }
+
+    #[test]
+    fn test_roundtrip_paragraph_split() {
+        // Setup
+        let file_id = test_file_id();
+        let content = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph.";
+
+        // Execute
+        let blocks = split_into_blocks(file_id, content);
+
+        // Assert
+        assert_eq!(reassemble(&blocks), content);
+        assert_eq!(blocks[0].separator, "\n\n");
+        assert_eq!(blocks[1].separator, "\n\n");
+        assert_eq!(blocks[2].separator, "");
+    }
+
+    #[test]
+    fn test_roundtrip_line_split() {
+        // Setup
+        let file_id = test_file_id();
+        let content = "Line one.\nLine two.\nLine three.";
+
+        // Execute
+        let blocks = split_into_blocks(file_id, content);
+
+        // Assert
+        assert_eq!(reassemble(&blocks), content);
+        assert_eq!(blocks[0].separator, "\n");
+        assert_eq!(blocks[1].separator, "\n");
+        assert_eq!(blocks[2].separator, "");
+    }
+
+    #[test]
+    fn test_roundtrip_trailing_newline() {
+        // Setup
+        let file_id = test_file_id();
+        let content = "Line one.\nLine two.\n";
+
+        // Execute
+        let blocks = split_into_blocks(file_id, content);
+
+        // Assert
+        assert_eq!(reassemble(&blocks), content);
+    }
+
+    #[test]
+    fn test_roundtrip_trailing_paragraph_break() {
+        // Setup
+        let file_id = test_file_id();
+        let content = "Para one.\n\nPara two.\n\n";
+
+        // Execute
+        let blocks = split_into_blocks(file_id, content);
+
+        // Assert
+        assert_eq!(reassemble(&blocks), content);
+    }
+
+    #[test]
+    fn test_roundtrip_single_block() {
+        // Setup
+        let file_id = test_file_id();
+        let content = "Just a single block with no delimiters";
+
+        // Execute
+        let blocks = split_into_blocks(file_id, content);
+
+        // Assert
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(reassemble(&blocks), content);
+        assert_eq!(blocks[0].separator, "");
+    }
+
+    #[test]
+    fn test_roundtrip_multiple_blank_lines() {
+        // Setup: 3+ consecutive newlines as paragraph separator
+        let file_id = test_file_id();
+        let content = "Para one.\n\n\nPara two.\n\n\n\nPara three.";
+
+        // Execute
+        let blocks = split_into_blocks(file_id, content);
+
+        // Assert
+        assert_eq!(reassemble(&blocks), content);
+    }
+
+    #[test]
+    fn test_roundtrip_empty_content() {
+        // Setup
+        let file_id = test_file_id();
+        let content = "";
+
+        // Execute
+        let blocks = split_into_blocks(file_id, content);
+
+        // Assert
+        assert!(blocks.is_empty());
+        assert_eq!(reassemble(&blocks), content);
+    }
+
+    #[test]
+    fn test_roundtrip_sentence_split() {
+        // Setup: single line with multiple sentences (no newlines)
+        let file_id = test_file_id();
+        let content = "First sentence. Second sentence. Third sentence.";
+
+        // Execute
+        let blocks = split_into_blocks(file_id, content);
+
+        // Assert
+        assert_eq!(reassemble(&blocks), content);
+    }
+
+    #[test]
+    fn test_roundtrip_leading_newlines() {
+        // Setup
+        let file_id = test_file_id();
+        let content = "\n\nLeading blank lines.\n\nThen another paragraph.";
+
+        // Execute
+        let blocks = split_into_blocks(file_id, content);
+
+        // Assert
+        assert_eq!(reassemble(&blocks), content);
+    }
+
+    #[test]
+    fn test_roundtrip_only_newlines() {
+        // Setup: content that is only newlines
+        let file_id = test_file_id();
+        let content = "\n\n\n";
+
+        // Execute
+        let blocks = split_into_blocks(file_id, content);
+
+        // Assert
+        assert_eq!(reassemble(&blocks), content);
+    }
+
+    #[test]
+    fn test_separators_capture_correct_delimiters() {
+        // Setup
+        let file_id = test_file_id();
+        let content = "A\n\nB\n\nC";
+
+        // Execute
+        let blocks = split_into_blocks(file_id, content);
+
+        // Assert
+        assert_eq!(blocks.len(), 3);
+        assert_eq!(blocks[0].content, "A");
+        assert_eq!(blocks[0].separator, "\n\n");
+        assert_eq!(blocks[1].content, "B");
+        assert_eq!(blocks[1].separator, "\n\n");
+        assert_eq!(blocks[2].content, "C");
+        assert_eq!(blocks[2].separator, "");
     }
 }
 
@@ -1134,10 +1307,10 @@ mod schema_action_tests {
             let mut s = state.write().unwrap();
             let code_id = s.codebook.create_code_def("CascadeCode".to_string(), 1, None).unwrap();
             let file_id = FileId::generate();
-            let block = TextBlock::new(file_id, 0, "test content".to_string());
-            let block_id = block.id;
+            let block = TextBlock::new(file_id, 0, "test content".to_string(), String::new());
+            let block_id = block.id();
             s.filemanager.add_file(file_id, "test.txt".to_string(), "test.txt".to_string(), FileType::PlainText, vec![block]);
-            let highlight = Highlight::new(block_id, 0, 5);
+            let highlight = Highlight::new(block_id, 0, block_id, 5);
             s.codebook.apply_code(code_id, highlight, "test".to_string(), "".to_string(), " content".to_string());
             code_id
         };
@@ -1452,5 +1625,442 @@ mod schema_action_tests {
         let c2 = s.codebook.code_def(code_id_2).expect("Code2 should still exist");
         assert_eq!(c1.theme_id(), None, "Code1 should be unassigned from theme");
         assert_eq!(c2.theme_id(), None, "Code2 should be unassigned from theme");
+    }
+}
+
+// ===== Tests for coding actions (Ticket 6) =====
+
+mod coding_action_tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+    use std::io::Write;
+
+    /// Creates a controller with known multi-block content so we can construct
+    /// valid Highlights against real BlockIds. Returns (controller, shared state).
+    async fn setup_coding_controller() -> (
+        AppController<MockProjectRepo, MockFileHandler, MockConfigStore>,
+        SharedState,
+    ) {
+        let content = "The quick brown fox jumps over the lazy dog.\n\nSecond paragraph with more text for testing.";
+        let handler = MockFileHandler::new().with_content(content);
+        let state = Arc::new(RwLock::new(AppState::new(DataState::Empty, AppConfig::default())));
+        let controller = AppController::new(
+            state.clone(), MockProjectRepo, handler, MockConfigStore,
+        ).await.unwrap();
+
+        controller.handle_action(Action::Project(ProjectAction::NewProject {
+            path: PathBuf::from("/tmp/coding_test.json"),
+            name: "CodingTest".to_string(),
+        })).await.unwrap();
+
+        (controller, state)
+    }
+
+    /// Imports a file via the mock and returns the FileId.
+    async fn import_test_file(
+        controller: &AppController<MockProjectRepo, MockFileHandler, MockConfigStore>,
+    ) -> FileId {
+        let mut tmp = NamedTempFile::new().unwrap();
+        tmp.write_all(b"ignored").unwrap();
+        tmp.flush().unwrap();
+        match controller.handle_action(Action::File(FileAction::ImportFile(
+            tmp.path().to_path_buf(),
+        ))).await.unwrap() {
+            ActionResult::FileImported(id) => id,
+            _ => panic!("Expected FileImported"),
+        }
+    }
+
+    /// Gets the first block id from the imported file.
+    fn first_block_id(state: &SharedState, file_id: FileId) -> BlockId {
+        let s = state.read().unwrap();
+        let file = s.filemanager.file(file_id).unwrap();
+        file.blocks().unwrap()[0].id()
+    }
+
+    /// Creates a code def and returns its ID.
+    fn create_code_def_in_state(state: &SharedState, name: &str) -> CodeDefId {
+        let mut s = state.write().unwrap();
+        s.codebook.create_code_def(name.to_string(), 1, None).unwrap()
+    }
+
+    /// Creates a stale CodeDefId (create + delete) for error testing.
+    fn stale_code_def_id(state: &SharedState) -> CodeDefId {
+        let mut s = state.write().unwrap();
+        let id = s.codebook.create_code_def("Stale".to_string(), 0, None).unwrap();
+        s.codebook.remove_code_def(id).unwrap();
+        id
+    }
+
+    /// Creates a stale QualCodeId (apply + remove) for error testing.
+    fn stale_qual_code_id(state: &SharedState, block_id: BlockId, def_id: CodeDefId) -> QualCodeId {
+        let mut s = state.write().unwrap();
+        let highlight = Highlight::new(block_id, 0, block_id, 3);
+        let qc_id = s.codebook.apply_code(def_id, highlight, "tmp".to_string(), String::new(), String::new());
+        s.codebook.remove_qual_code(qc_id).unwrap();
+        qc_id
+    }
+
+    // ----- ApplyCode tests -----
+
+    #[tokio::test]
+    async fn test_apply_code_single_block_returns_code_applied() {
+        // Setup
+        let (controller, state) = setup_coding_controller().await;
+        let file_id = import_test_file(&controller).await;
+        let block_id = first_block_id(&state, file_id);
+        let def_id = create_code_def_in_state(&state, "TestCode");
+
+        let highlight = Highlight::new(block_id, 4, block_id, 9);
+
+        // Execute
+        let result = controller.handle_action(Action::Coding(CodingAction::ApplyCode {
+            code_def_id: def_id,
+            highlight,
+        })).await;
+
+        // Assert
+        assert!(result.is_ok(), "ApplyCode should succeed");
+        match result.unwrap() {
+            ActionResult::CodeApplied(_) => {}
+            other => panic!("Expected CodeApplied, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_apply_code_extracts_correct_snippet() {
+        // Setup: block 0 content is "The quick brown fox jumps over the lazy dog."
+        let (controller, state) = setup_coding_controller().await;
+        let file_id = import_test_file(&controller).await;
+        let block_id = first_block_id(&state, file_id);
+        let def_id = create_code_def_in_state(&state, "TestCode");
+
+        // Highlight "quick" (offsets 4..9)
+        let highlight = Highlight::new(block_id, 4, block_id, 9);
+
+        // Execute
+        let result = controller.handle_action(Action::Coding(CodingAction::ApplyCode {
+            code_def_id: def_id,
+            highlight,
+        })).await.unwrap();
+
+        let qc_id = match result {
+            ActionResult::CodeApplied(id) => id,
+            other => panic!("Expected CodeApplied, got {:?}", other),
+        };
+
+        // Assert: verify snippet
+        let s = state.read().unwrap();
+        let qc = s.codebook.get_all_qual_codes().iter()
+            .find(|qc| qc.id() == qc_id).unwrap();
+        assert_eq!(qc.snippet(), "quick", "Snippet should match highlighted text");
+    }
+
+    #[tokio::test]
+    async fn test_apply_code_invalid_code_def_returns_error() {
+        // Setup
+        let (controller, state) = setup_coding_controller().await;
+        let file_id = import_test_file(&controller).await;
+        let block_id = first_block_id(&state, file_id);
+        let fake_def = stale_code_def_id(&state);
+
+        let highlight = Highlight::new(block_id, 0, block_id, 5);
+
+        // Execute
+        let result = controller.handle_action(Action::Coding(CodingAction::ApplyCode {
+            code_def_id: fake_def,
+            highlight,
+        })).await;
+
+        // Assert
+        assert!(result.is_err(), "ApplyCode with nonexistent code def should fail");
+    }
+
+    #[tokio::test]
+    async fn test_apply_code_block_not_found_returns_error() {
+        // Setup: use a block from a file that has been removed
+        let (controller, state) = setup_coding_controller().await;
+        let file_id = import_test_file(&controller).await;
+        let block_id = first_block_id(&state, file_id);
+        let def_id = create_code_def_in_state(&state, "TestCode");
+
+        // Remove the file so its blocks no longer exist in filemanager
+        controller.handle_action(Action::File(FileAction::RemoveFile(file_id)))
+            .await.unwrap();
+
+        let highlight = Highlight::new(block_id, 0, block_id, 5);
+
+        // Execute
+        let result = controller.handle_action(Action::Coding(CodingAction::ApplyCode {
+            code_def_id: def_id,
+            highlight,
+        })).await;
+
+        // Assert
+        assert!(result.is_err(), "ApplyCode with nonexistent block should fail");
+    }
+
+    #[tokio::test]
+    async fn test_apply_code_out_of_bounds_returns_error() {
+        // Setup
+        let (controller, state) = setup_coding_controller().await;
+        let file_id = import_test_file(&controller).await;
+        let block_id = first_block_id(&state, file_id);
+        let def_id = create_code_def_in_state(&state, "TestCode");
+
+        // End offset far beyond block content length
+        let highlight = Highlight::new(block_id, 0, block_id, 99999);
+
+        // Execute
+        let result = controller.handle_action(Action::Coding(CodingAction::ApplyCode {
+            code_def_id: def_id,
+            highlight,
+        })).await;
+
+        // Assert
+        assert!(result.is_err(), "ApplyCode with out-of-bounds highlight should fail");
+    }
+
+    #[tokio::test]
+    async fn test_apply_code_no_project_returns_error() {
+        // Setup: controller with no project loaded
+        let state = Arc::new(RwLock::new(AppState::new(DataState::Empty, AppConfig::default())));
+        let controller = AppController::new(
+            state.clone(), MockProjectRepo, MockFileHandler::new(), MockConfigStore,
+        ).await.unwrap();
+
+        // Create a stale def_id and block_id via state manipulation (won't matter, fails on is_loaded)
+        let fake_def = stale_code_def_id(&state);
+        // Need a block_id from a file: add one directly to state
+        let file_id = FileId::generate();
+        let block_id = {
+            let mut s = state.write().unwrap();
+            let block = TextBlock::new(file_id, 0, "test".to_string(), String::new());
+            let bid = block.id();
+            s.filemanager.add_file(file_id, "t.txt".to_string(), "t.txt".to_string(), FileType::PlainText, vec![block]);
+            bid
+        };
+
+        let highlight = Highlight::new(block_id, 0, block_id, 3);
+
+        // Execute
+        let result = controller.handle_action(Action::Coding(CodingAction::ApplyCode {
+            code_def_id: fake_def,
+            highlight,
+        })).await;
+
+        // Assert
+        match result {
+            Err(err) => {
+                let msg = format!("{}", err);
+                assert!(msg.contains("No project loaded"), "Error should mention no project loaded, got: {}", msg);
+            }
+            Ok(_) => panic!("Expected error when no project loaded"),
+        }
+    }
+
+    // ----- DeleteCode tests -----
+
+    #[tokio::test]
+    async fn test_delete_code_returns_success() {
+        // Setup: apply a code, then delete it
+        let (controller, state) = setup_coding_controller().await;
+        let file_id = import_test_file(&controller).await;
+        let block_id = first_block_id(&state, file_id);
+        let def_id = create_code_def_in_state(&state, "TestCode");
+
+        let highlight = Highlight::new(block_id, 0, block_id, 5);
+        let qc_id = match controller.handle_action(Action::Coding(CodingAction::ApplyCode {
+            code_def_id: def_id, highlight,
+        })).await.unwrap() {
+            ActionResult::CodeApplied(id) => id,
+            other => panic!("Expected CodeApplied, got {:?}", other),
+        };
+
+        // Execute
+        let result = controller.handle_action(Action::Coding(CodingAction::DeleteCode {
+            id: qc_id,
+        })).await;
+
+        // Assert
+        assert!(result.is_ok(), "DeleteCode should succeed");
+        match result.unwrap() {
+            ActionResult::Success => {}
+            other => panic!("Expected Success, got {:?}", other),
+        }
+
+        // Verify the qual code is gone
+        let s = state.read().unwrap();
+        assert_eq!(s.codebook.get_all_qual_codes().len(), 0, "QualCode should be removed");
+    }
+
+    #[tokio::test]
+    async fn test_delete_code_nonexistent_returns_error() {
+        // Setup: create and remove a qual code to get a stale ID
+        let (controller, state) = setup_coding_controller().await;
+        let file_id = import_test_file(&controller).await;
+        let block_id = first_block_id(&state, file_id);
+        let def_id = create_code_def_in_state(&state, "TestCode");
+        let fake_id = stale_qual_code_id(&state, block_id, def_id);
+
+        // Execute
+        let result = controller.handle_action(Action::Coding(CodingAction::DeleteCode {
+            id: fake_id,
+        })).await;
+
+        // Assert
+        assert!(result.is_err(), "DeleteCode with nonexistent QualCodeId should fail");
+    }
+
+    // ----- ReassignCode tests -----
+
+    #[tokio::test]
+    async fn test_reassign_code_changes_def_id() {
+        // Setup
+        let (controller, state) = setup_coding_controller().await;
+        let file_id = import_test_file(&controller).await;
+        let block_id = first_block_id(&state, file_id);
+        let def_a = create_code_def_in_state(&state, "DefA");
+        let def_b = create_code_def_in_state(&state, "DefB");
+
+        let highlight = Highlight::new(block_id, 0, block_id, 5);
+        let qc_id = match controller.handle_action(Action::Coding(CodingAction::ApplyCode {
+            code_def_id: def_a, highlight,
+        })).await.unwrap() {
+            ActionResult::CodeApplied(id) => id,
+            other => panic!("Expected CodeApplied, got {:?}", other),
+        };
+
+        // Verify initial def_id
+        {
+            let s = state.read().unwrap();
+            let qc = s.codebook.get_all_qual_codes().iter().find(|qc| qc.id() == qc_id).unwrap();
+            assert_eq!(qc.def_id(), def_a, "Initial def_id should be def_a");
+        }
+
+        // Execute
+        let result = controller.handle_action(Action::Coding(CodingAction::ReassignCode {
+            id: qc_id, new_def_id: def_b,
+        })).await;
+
+        // Assert
+        assert!(result.is_ok(), "ReassignCode should succeed");
+        match result.unwrap() {
+            ActionResult::Success => {}
+            other => panic!("Expected Success, got {:?}", other),
+        }
+
+        let s = state.read().unwrap();
+        let qc = s.codebook.get_all_qual_codes().iter().find(|qc| qc.id() == qc_id).unwrap();
+        assert_eq!(qc.def_id(), def_b, "def_id should be changed to def_b after reassign");
+    }
+
+    #[tokio::test]
+    async fn test_reassign_code_nonexistent_qual_code_returns_error() {
+        // Setup
+        let (controller, state) = setup_coding_controller().await;
+        let file_id = import_test_file(&controller).await;
+        let block_id = first_block_id(&state, file_id);
+        let def_id = create_code_def_in_state(&state, "TestCode");
+        let fake_qc = stale_qual_code_id(&state, block_id, def_id);
+
+        // Execute
+        let result = controller.handle_action(Action::Coding(CodingAction::ReassignCode {
+            id: fake_qc, new_def_id: def_id,
+        })).await;
+
+        // Assert
+        assert!(result.is_err(), "ReassignCode with nonexistent QualCodeId should fail");
+    }
+
+    #[tokio::test]
+    async fn test_reassign_code_nonexistent_def_returns_error() {
+        // Setup
+        let (controller, state) = setup_coding_controller().await;
+        let file_id = import_test_file(&controller).await;
+        let block_id = first_block_id(&state, file_id);
+        let def_id = create_code_def_in_state(&state, "TestCode");
+
+        let highlight = Highlight::new(block_id, 0, block_id, 5);
+        let qc_id = match controller.handle_action(Action::Coding(CodingAction::ApplyCode {
+            code_def_id: def_id, highlight,
+        })).await.unwrap() {
+            ActionResult::CodeApplied(id) => id,
+            other => panic!("Expected CodeApplied, got {:?}", other),
+        };
+
+        let fake_def = stale_code_def_id(&state);
+
+        // Execute
+        let result = controller.handle_action(Action::Coding(CodingAction::ReassignCode {
+            id: qc_id, new_def_id: fake_def,
+        })).await;
+
+        // Assert
+        assert!(result.is_err(), "ReassignCode with nonexistent target def should fail");
+    }
+
+    // ----- EditHighlight tests -----
+
+    #[tokio::test]
+    async fn test_edit_highlight_updates_snippet() {
+        // Setup: block 0 content = "The quick brown fox jumps over the lazy dog."
+        let (controller, state) = setup_coding_controller().await;
+        let file_id = import_test_file(&controller).await;
+        let block_id = first_block_id(&state, file_id);
+        let def_id = create_code_def_in_state(&state, "TestCode");
+
+        // Apply code highlighting "quick" (4..9)
+        let highlight = Highlight::new(block_id, 4, block_id, 9);
+        let qc_id = match controller.handle_action(Action::Coding(CodingAction::ApplyCode {
+            code_def_id: def_id, highlight,
+        })).await.unwrap() {
+            ActionResult::CodeApplied(id) => id,
+            other => panic!("Expected CodeApplied, got {:?}", other),
+        };
+
+        // Verify initial snippet
+        {
+            let s = state.read().unwrap();
+            let qc = s.codebook.get_all_qual_codes().iter().find(|qc| qc.id() == qc_id).unwrap();
+            assert_eq!(qc.snippet(), "quick");
+        }
+
+        // Execute: edit highlight to "brown" (10..15)
+        let new_highlight = Highlight::new(block_id, 10, block_id, 15);
+        let result = controller.handle_action(Action::Coding(CodingAction::EditHighlight {
+            id: qc_id, new_highlight,
+        })).await;
+
+        // Assert
+        assert!(result.is_ok(), "EditHighlight should succeed");
+        match result.unwrap() {
+            ActionResult::Success => {}
+            other => panic!("Expected Success, got {:?}", other),
+        }
+
+        let s = state.read().unwrap();
+        let qc = s.codebook.get_all_qual_codes().iter().find(|qc| qc.id() == qc_id).unwrap();
+        assert_eq!(qc.snippet(), "brown", "Snippet should be updated to new highlight range");
+    }
+
+    #[tokio::test]
+    async fn test_edit_highlight_nonexistent_qual_code_returns_error() {
+        // Setup
+        let (controller, state) = setup_coding_controller().await;
+        let file_id = import_test_file(&controller).await;
+        let block_id = first_block_id(&state, file_id);
+        let def_id = create_code_def_in_state(&state, "TestCode");
+        let fake_qc = stale_qual_code_id(&state, block_id, def_id);
+
+        let new_highlight = Highlight::new(block_id, 0, block_id, 5);
+
+        // Execute
+        let result = controller.handle_action(Action::Coding(CodingAction::EditHighlight {
+            id: fake_qc, new_highlight,
+        })).await;
+
+        // Assert
+        assert!(result.is_err(), "EditHighlight with nonexistent QualCodeId should fail");
     }
 }

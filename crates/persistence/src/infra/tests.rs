@@ -35,12 +35,12 @@ fn create_populated_data() -> (CodeBook, FileList) {
 
     // Add a file with a block
     let file_id = FileId::generate();
-    let block = TextBlock::new(file_id, 0, "I really enjoyed it very much".to_string());
-    let block_id = block.id;
+    let block = TextBlock::new(file_id, 0, "I really enjoyed it very much".to_string(), String::new());
+    let block_id = block.id();
     filelist.add_file(file_id, "interview_01.txt".to_string(), "/path/to/interview_01.txt".to_string(), FileType::PlainText, vec![block]);
 
     // Apply a qual code
-    let highlight = Highlight::new(block_id, 2, 19);
+    let highlight = Highlight::new(block_id, 2, block_id, 19);
     codebook.apply_code(
         code_def_with_theme,
         highlight,

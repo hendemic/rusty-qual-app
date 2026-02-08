@@ -15,7 +15,7 @@ fn create_test_codebook() -> CodeBook {
 fn create_test_file(file_path: &str, num_blocks: usize) -> QualFile {
     let id = FileId::generate();
     let blocks: Vec<TextBlock> = (0..num_blocks)
-        .map(|i| TextBlock::new(id, i, format!("Block content {}", i)))
+        .map(|i| TextBlock::new(id, i, format!("Block content {}", i), String::new()))
         .collect();
     QualFile::new(id, file_path.to_string(), file_path.to_string(), FileType::PlainText, blocks)
 }
@@ -33,7 +33,7 @@ fn apply_test_code(
     code_def_id: CodeDefId,
     snippet: &str,
 ) -> QualCodeId {
-    let highlight = Highlight::new(block_id, 0, 10);
+    let highlight = Highlight::new(block_id, 0, block_id, 10);
     codebook.apply_code(code_def_id, highlight, snippet.to_string(), String::new(), String::new())
 }
 
@@ -42,7 +42,7 @@ fn build_block_map(files: &[&QualFile]) -> HashMap<BlockId, FileId> {
     files
         .iter()
         .flat_map(|file| {
-            file.blocks().unwrap_or(&[]).iter().map(move |block| (block.id, file.id))
+            file.blocks().unwrap_or(&[]).iter().map(move |block| (block.id(), file.id()))
         })
         .collect()
 }
@@ -64,26 +64,26 @@ mod code_retrieval {
 
         // Apply 3 codes to different blocks in the same file
         let blocks = file.blocks().unwrap();
-        let code_id_1 = apply_test_code(&mut codebook, blocks[0].id, code_def_id, "snippet1");
-        let code_id_2 = apply_test_code(&mut codebook, blocks[1].id, code_def_id, "snippet2");
-        let code_id_3 = apply_test_code(&mut codebook, blocks[2].id, code_def_id, "snippet3");
+        let code_id_1 = apply_test_code(&mut codebook, blocks[0].id(), code_def_id, "snippet1");
+        let code_id_2 = apply_test_code(&mut codebook, blocks[1].id(), code_def_id, "snippet2");
+        let code_id_3 = apply_test_code(&mut codebook, blocks[2].id(), code_def_id, "snippet3");
 
         // Execute: Get codes
-        let codes: Vec<&QualCode> = codebook.get_codes_for_file(file.id, &block_map).collect();
+        let codes: Vec<&QualCode> = codebook.get_codes_for_file(file.id(), &block_map).collect();
 
         // Assert: Should return all 3 codes
         assert_eq!(codes.len(), 3, "Should return exactly 3 codes for the file");
 
-        let code_ids: Vec<QualCodeId> = codes.iter().map(|c| c.id).collect();
+        let code_ids: Vec<QualCodeId> = codes.iter().map(|c| c.id()).collect();
         assert!(code_ids.contains(&code_id_1), "Should contain code_id_1");
         assert!(code_ids.contains(&code_id_2), "Should contain code_id_2");
         assert!(code_ids.contains(&code_id_3), "Should contain code_id_3");
 
         // Execute: Remove codes for this file
-        codebook.remove_codes_for_file(file.id, &block_map);
+        codebook.remove_codes_for_file(file.id(), &block_map);
 
         // Assert: No codes should remain for this file
-        let codes_after_removal: Vec<&QualCode> = codebook.get_codes_for_file(file.id, &block_map).collect();
+        let codes_after_removal: Vec<&QualCode> = codebook.get_codes_for_file(file.id(), &block_map).collect();
         assert_eq!(codes_after_removal.len(), 0, "Should have 0 codes after removal");
     }
 
@@ -99,21 +99,21 @@ mod code_retrieval {
 
         // Apply codes to file A
         let blocks_a = file_a.blocks().unwrap();
-        let code_a1 = apply_test_code(&mut codebook, blocks_a[0].id, code_def_id, "A1");
-        let code_a2 = apply_test_code(&mut codebook, blocks_a[1].id, code_def_id, "A2");
+        let code_a1 = apply_test_code(&mut codebook, blocks_a[0].id(), code_def_id, "A1");
+        let code_a2 = apply_test_code(&mut codebook, blocks_a[1].id(), code_def_id, "A2");
 
         // Apply codes to file B
         let blocks_b = file_b.blocks().unwrap();
-        let code_b1 = apply_test_code(&mut codebook, blocks_b[0].id, code_def_id, "B1");
-        let code_b2 = apply_test_code(&mut codebook, blocks_b[1].id, code_def_id, "B2");
+        let code_b1 = apply_test_code(&mut codebook, blocks_b[0].id(), code_def_id, "B1");
+        let code_b2 = apply_test_code(&mut codebook, blocks_b[1].id(), code_def_id, "B2");
 
         // Execute: Get codes for file A
-        let codes_a: Vec<&QualCode> = codebook.get_codes_for_file(file_a.id, &block_map).collect();
-        let code_ids_a: Vec<QualCodeId> = codes_a.iter().map(|c| c.id).collect();
+        let codes_a: Vec<&QualCode> = codebook.get_codes_for_file(file_a.id(), &block_map).collect();
+        let code_ids_a: Vec<QualCodeId> = codes_a.iter().map(|c| c.id()).collect();
 
         // Execute: Get codes for file B
-        let codes_b: Vec<&QualCode> = codebook.get_codes_for_file(file_b.id, &block_map).collect();
-        let code_ids_b: Vec<QualCodeId> = codes_b.iter().map(|c| c.id).collect();
+        let codes_b: Vec<&QualCode> = codebook.get_codes_for_file(file_b.id(), &block_map).collect();
+        let code_ids_b: Vec<QualCodeId> = codes_b.iter().map(|c| c.id()).collect();
 
         // Assert: File A should only have its 2 codes
         assert_eq!(codes_a.len(), 2, "File A should have exactly 2 codes");
@@ -130,15 +130,15 @@ mod code_retrieval {
         assert!(!code_ids_b.contains(&code_a2), "File B should NOT contain code_a2");
 
         // Execute: Remove codes for file A only
-        codebook.remove_codes_for_file(file_a.id, &block_map);
+        codebook.remove_codes_for_file(file_a.id(), &block_map);
 
         // Assert: File A should now have 0 codes
-        let codes_a_after: Vec<&QualCode> = codebook.get_codes_for_file(file_a.id, &block_map).collect();
+        let codes_a_after: Vec<&QualCode> = codebook.get_codes_for_file(file_a.id(), &block_map).collect();
         assert_eq!(codes_a_after.len(), 0, "File A should have 0 codes after removal");
 
         // Assert: File B should still have its 2 codes (unaffected)
-        let codes_b_after: Vec<&QualCode> = codebook.get_codes_for_file(file_b.id, &block_map).collect();
-        let code_ids_b_after: Vec<QualCodeId> = codes_b_after.iter().map(|c| c.id).collect();
+        let codes_b_after: Vec<&QualCode> = codebook.get_codes_for_file(file_b.id(), &block_map).collect();
+        let code_ids_b_after: Vec<QualCodeId> = codes_b_after.iter().map(|c| c.id()).collect();
         assert_eq!(codes_b_after.len(), 2, "File B should still have 2 codes after removing A's codes");
         assert!(code_ids_b_after.contains(&code_b1), "File B should still contain code_b1");
         assert!(code_ids_b_after.contains(&code_b2), "File B should still contain code_b2");
@@ -152,7 +152,7 @@ mod code_retrieval {
         let block_map = build_block_map(&[&file]);
 
         // Execute
-        let codes: Vec<&QualCode> = codebook.get_codes_for_file(file.id, &block_map).collect();
+        let codes: Vec<&QualCode> = codebook.get_codes_for_file(file.id(), &block_map).collect();
 
         // Assert: Should return empty iterator
         assert_eq!(codes.len(), 0, "Should return 0 codes for file with no codes applied");
@@ -166,7 +166,7 @@ mod code_retrieval {
         let block_map = build_block_map(&[&file]);
 
         // Execute
-        let codes: Vec<&QualCode> = codebook.get_codes_for_file(file.id, &block_map).collect();
+        let codes: Vec<&QualCode> = codebook.get_codes_for_file(file.id(), &block_map).collect();
 
         // Assert: Should return empty
         assert_eq!(codes.len(), 0, "Empty codebook should return 0 codes");
@@ -181,7 +181,7 @@ mod code_retrieval {
 
         // Create a code with a valid block
         let blocks = file.blocks().unwrap();
-        let _valid_code = apply_test_code(&mut codebook, blocks[0].id, code_def_id, "valid");
+        let _valid_code = apply_test_code(&mut codebook, blocks[0].id(), code_def_id, "valid");
 
         // Create a code with an orphaned block (not in any file)
         let orphaned_block_id = BlockId(Uuid::new_v4());
@@ -191,17 +191,17 @@ mod code_retrieval {
         let block_map = build_block_map(&[&file]);
 
         // Execute: Get codes
-        let codes: Vec<&QualCode> = codebook.get_codes_for_file(file.id, &block_map).collect();
+        let codes: Vec<&QualCode> = codebook.get_codes_for_file(file.id(), &block_map).collect();
 
         // Assert: Current behavior silently filters out orphaned blocks
         // Should only return the valid code, not the orphaned one
         assert_eq!(codes.len(), 1, "Should return only 1 valid code, orphaned code filtered out");
 
         // Execute: Remove codes for the file
-        codebook.remove_codes_for_file(file.id, &block_map);
+        codebook.remove_codes_for_file(file.id(), &block_map);
 
         // Assert: Valid code removed, but orphaned code should remain in codebook
-        let codes_after: Vec<&QualCode> = codebook.get_codes_for_file(file.id, &block_map).collect();
+        let codes_after: Vec<&QualCode> = codebook.get_codes_for_file(file.id(), &block_map).collect();
         assert_eq!(codes_after.len(), 0, "Should have 0 codes for file after removal");
 
         // Verify the orphaned code still exists in the codebook (wasn't removed)
@@ -224,12 +224,12 @@ mod code_retrieval {
 
         // Apply 2 codes from code_def_1
         let blocks = file.blocks().unwrap();
-        let code_1a = apply_test_code(&mut codebook, blocks[0].id, code_def_1, "1a");
-        let code_1b = apply_test_code(&mut codebook, blocks[1].id, code_def_1, "1b");
+        let code_1a = apply_test_code(&mut codebook, blocks[0].id(), code_def_1, "1a");
+        let code_1b = apply_test_code(&mut codebook, blocks[1].id(), code_def_1, "1b");
 
         // Apply 2 codes from code_def_2
-        let code_2a = apply_test_code(&mut codebook, blocks[2].id, code_def_2, "2a");
-        let code_2b = apply_test_code(&mut codebook, blocks[3].id, code_def_2, "2b");
+        let code_2a = apply_test_code(&mut codebook, blocks[2].id(), code_def_2, "2a");
+        let code_2b = apply_test_code(&mut codebook, blocks[3].id(), code_def_2, "2b");
 
         // Verify we have 4 codes total
         assert_eq!(codebook.get_all_qual_codes().len(), 4, "Should have 4 codes before removal");
@@ -242,7 +242,7 @@ mod code_retrieval {
         let remaining_codes = codebook.get_all_qual_codes();
         assert_eq!(remaining_codes.len(), 2, "Should have 2 codes after removing code_def_1");
 
-        let remaining_ids: Vec<QualCodeId> = remaining_codes.iter().map(|c| c.id).collect();
+        let remaining_ids: Vec<QualCodeId> = remaining_codes.iter().map(|c| c.id()).collect();
         assert!(!remaining_ids.contains(&code_1a), "code_1a should be removed");
         assert!(!remaining_ids.contains(&code_1b), "code_1b should be removed");
         assert!(remaining_ids.contains(&code_2a), "code_2a should remain");
@@ -302,10 +302,10 @@ mod code_retrieval {
         // Apply codes to both files
         let blocks_a = file_a.blocks().unwrap();
         let blocks_b = file_b.blocks().unwrap();
-        apply_test_code(&mut codebook, blocks_a[0].id, code_def, "a1");
-        apply_test_code(&mut codebook, blocks_a[1].id, code_def, "a2");
-        apply_test_code(&mut codebook, blocks_b[0].id, code_def, "b1");
-        apply_test_code(&mut codebook, blocks_b[1].id, code_def, "b2");
+        apply_test_code(&mut codebook, blocks_a[0].id(), code_def, "a1");
+        apply_test_code(&mut codebook, blocks_a[1].id(), code_def, "a2");
+        apply_test_code(&mut codebook, blocks_b[0].id(), code_def, "b1");
+        apply_test_code(&mut codebook, blocks_b[1].id(), code_def, "b2");
 
         assert_eq!(codebook.get_all_qual_codes().len(), 4, "Should have 4 codes before removal");
 
@@ -316,8 +316,8 @@ mod code_retrieval {
         // Assert: All codes removed, both files affected
         assert_eq!(codebook.get_all_qual_codes().len(), 0, "All codes should be removed");
 
-        let codes_a: Vec<&QualCode> = codebook.get_codes_for_file(file_a.id, &block_map).collect();
-        let codes_b: Vec<&QualCode> = codebook.get_codes_for_file(file_b.id, &block_map).collect();
+        let codes_a: Vec<&QualCode> = codebook.get_codes_for_file(file_a.id(), &block_map).collect();
+        let codes_b: Vec<&QualCode> = codebook.get_codes_for_file(file_b.id(), &block_map).collect();
 
         assert_eq!(codes_a.len(), 0, "File A should have 0 codes");
         assert_eq!(codes_b.len(), 0, "File B should have 0 codes");
@@ -376,10 +376,10 @@ mod theme_operations {
 
         // Assert: Codes are in correct themes
         let theme_a_codes: Vec<CodeDefId> = codebook.get_codes_in_theme(theme_a)
-            .map(|c| c.id)
+            .map(|c| c.id())
             .collect();
         let theme_b_codes: Vec<CodeDefId> = codebook.get_codes_in_theme(theme_b)
-            .map(|c| c.id)
+            .map(|c| c.id())
             .collect();
 
         assert_eq!(theme_a_codes.len(), 2, "Theme A should have 2 codes");
@@ -412,7 +412,7 @@ mod theme_operations {
         assert_eq!(codebook.get_codes_in_theme(theme_id).count(), 1, "Theme should have 1 code");
         assert_eq!(codebook.get_top_level_codes().count(), 1, "Should have 1 top-level code");
 
-        let top_level_codes: Vec<CodeDefId> = codebook.get_top_level_codes().map(|c| c.id).collect();
+        let top_level_codes: Vec<CodeDefId> = codebook.get_top_level_codes().map(|c| c.id()).collect();
         assert!(top_level_codes.contains(&code_1), "code_1 should be top-level");
     }
 
@@ -436,7 +436,7 @@ mod theme_operations {
         assert_eq!(codebook.get_codes_in_theme(theme_a).count(), 0, "Theme A should have 0 codes");
         assert_eq!(codebook.get_codes_in_theme(theme_b).count(), 1, "Theme B should have 1 code");
 
-        let theme_b_codes: Vec<CodeDefId> = codebook.get_codes_in_theme(theme_b).map(|c| c.id).collect();
+        let theme_b_codes: Vec<CodeDefId> = codebook.get_codes_in_theme(theme_b).map(|c| c.id()).collect();
         assert!(theme_b_codes.contains(&code_id), "Theme B should contain the code");
     }
 
@@ -494,10 +494,10 @@ mod theme_operations {
         let code_top = codebook.create_code_def("TopLevel".to_string(), 5, None).unwrap();
 
         // Assert: Each theme has correct codes
-        let t1_codes: Vec<CodeDefId> = codebook.get_codes_in_theme(theme_1).map(|c| c.id).collect();
-        let t2_codes: Vec<CodeDefId> = codebook.get_codes_in_theme(theme_2).map(|c| c.id).collect();
-        let t3_codes: Vec<CodeDefId> = codebook.get_codes_in_theme(theme_3).map(|c| c.id).collect();
-        let top_codes: Vec<CodeDefId> = codebook.get_top_level_codes().map(|c| c.id).collect();
+        let t1_codes: Vec<CodeDefId> = codebook.get_codes_in_theme(theme_1).map(|c| c.id()).collect();
+        let t2_codes: Vec<CodeDefId> = codebook.get_codes_in_theme(theme_2).map(|c| c.id()).collect();
+        let t3_codes: Vec<CodeDefId> = codebook.get_codes_in_theme(theme_3).map(|c| c.id()).collect();
+        let top_codes: Vec<CodeDefId> = codebook.get_top_level_codes().map(|c| c.id()).collect();
 
         assert_eq!(t1_codes.len(), 2, "Theme 1 should have 2 codes");
         assert!(t1_codes.contains(&code_1a) && t1_codes.contains(&code_1b));
@@ -539,7 +539,7 @@ mod code_index_changes {
         assert!(result.is_ok(), "Should successfully move to beginning");
 
         // Assert: Order should be [code_3, code_1, code_2]
-        let order: Vec<CodeDefId> = codebook.get_all_code_defs().map(|c| c.id).collect();
+        let order: Vec<CodeDefId> = codebook.get_all_code_defs().map(|c| c.id()).collect();
         assert_eq!(order, vec![code_3, code_1, code_2], "code_3 should be first");
     }
 
@@ -557,7 +557,7 @@ mod code_index_changes {
         assert!(result.is_ok(), "Should successfully move to end");
 
         // Assert: Order should be [code_2, code_3, code_1]
-        let order: Vec<CodeDefId> = codebook.get_all_code_defs().map(|c| c.id).collect();
+        let order: Vec<CodeDefId> = codebook.get_all_code_defs().map(|c| c.id()).collect();
         assert_eq!(order, vec![code_2, code_3, code_1], "code_1 should be last");
     }
 
@@ -575,7 +575,7 @@ mod code_index_changes {
         assert!(result.is_ok(), "Should succeed even when moving to same index");
 
         // Assert: Order unchanged
-        let order: Vec<CodeDefId> = codebook.get_all_code_defs().map(|c| c.id).collect();
+        let order: Vec<CodeDefId> = codebook.get_all_code_defs().map(|c| c.id()).collect();
         assert_eq!(order, vec![code_1, code_2, code_3], "Order should remain unchanged");
     }
 
@@ -616,7 +616,7 @@ mod code_index_changes {
         assert!(result.is_ok(), "Should successfully swap");
 
         // Assert: Order should be [code_1, code_4, code_3, code_2]
-        let order: Vec<CodeDefId> = codebook.get_all_code_defs().map(|c| c.id).collect();
+        let order: Vec<CodeDefId> = codebook.get_all_code_defs().map(|c| c.id()).collect();
         assert_eq!(order, vec![code_1, code_4, code_3, code_2], "code_2 and code_4 should be swapped");
     }
 
@@ -650,7 +650,7 @@ mod code_index_changes {
         assert!(result.is_ok(), "Should successfully move to middle");
 
         // Assert: Order should be [theme_2, theme_3, theme_1, theme_4]
-        let order: Vec<ThemeId> = codebook.get_all_themes().map(|t| t.id).collect();
+        let order: Vec<ThemeId> = codebook.get_all_themes().map(|t| t.id()).collect();
         assert_eq!(order, vec![theme_2, theme_3, theme_1, theme_4], "theme_1 should be at index 2");
     }
 
@@ -668,7 +668,7 @@ mod code_index_changes {
         assert!(result.is_ok(), "Should successfully swap");
 
         // Assert: Order should be [theme_3, theme_2, theme_1]
-        let order: Vec<ThemeId> = codebook.get_all_themes().map(|t| t.id).collect();
+        let order: Vec<ThemeId> = codebook.get_all_themes().map(|t| t.id()).collect();
         assert_eq!(order, vec![theme_3, theme_2, theme_1], "First and last should be swapped");
     }
 
@@ -705,7 +705,7 @@ mod code_index_changes {
         assert!(result.is_ok(), "Should successfully move file");
 
         // Assert: Order should be [file_3, file_1, file_2]
-        let order: Vec<FileId> = file_list.get_all_files().map(|f| f.id).collect();
+        let order: Vec<FileId> = file_list.get_all_files().map(|f| f.id()).collect();
         assert_eq!(order, vec![file_3, file_1, file_2], "file_3 should be first");
     }
 
@@ -723,7 +723,7 @@ mod code_index_changes {
         assert!(result.is_ok(), "Should successfully swap files");
 
         // Assert: Order should be [file_3, file_2, file_1]
-        let order: Vec<FileId> = file_list.get_all_files().map(|f| f.id).collect();
+        let order: Vec<FileId> = file_list.get_all_files().map(|f| f.id()).collect();
         assert_eq!(order, vec![file_3, file_2, file_1], "First and last files should be swapped");
     }
 
@@ -762,7 +762,7 @@ mod code_index_changes {
         assert!(result.is_ok(), "Should succeed even swapping with self");
 
         // Assert: Order unchanged
-        let order: Vec<FileId> = file_list.get_all_files().map(|f| f.id).collect();
+        let order: Vec<FileId> = file_list.get_all_files().map(|f| f.id()).collect();
         assert_eq!(order, vec![file_1, file_2], "Order should remain unchanged");
     }
     // ===== Tests for sort operations =====
@@ -777,14 +777,14 @@ mod code_index_changes {
         let code_b = codebook.create_code_def("Bob".to_string(), 3, None).unwrap();
 
         // Verify initial order
-        let initial_order: Vec<CodeDefId> = codebook.get_all_code_defs().map(|c| c.id).collect();
+        let initial_order: Vec<CodeDefId> = codebook.get_all_code_defs().map(|c| c.id()).collect();
         assert_eq!(initial_order, vec![code_c, code_a, code_b], "Initial order should be insertion order");
 
         // Execute: Sort by name
         codebook.sort_code_defs_by_name();
 
         // Assert: Should be alphabetically sorted
-        let sorted_order: Vec<CodeDefId> = codebook.get_all_code_defs().map(|c| c.id).collect();
+        let sorted_order: Vec<CodeDefId> = codebook.get_all_code_defs().map(|c| c.id()).collect();
         assert_eq!(sorted_order, vec![code_a, code_b, code_c], "Should be sorted alphabetically");
 
         // Verify IDs are still accessible and data intact
@@ -805,7 +805,7 @@ mod code_index_changes {
         codebook.sort_themes_by_name();
 
         // Assert: Should be alphabetically sorted
-        let sorted_order: Vec<ThemeId> = codebook.get_all_themes().map(|t| t.id).collect();
+        let sorted_order: Vec<ThemeId> = codebook.get_all_themes().map(|t| t.id()).collect();
         assert_eq!(sorted_order, vec![theme_a, theme_m, theme_z], "Should be sorted alphabetically");
 
         // Verify themes are still accessible
@@ -826,7 +826,7 @@ mod code_index_changes {
         file_list.sort_files_by_name();
 
         // Assert: Should be alphabetically sorted
-        let sorted_order: Vec<FileId> = file_list.get_all_files().map(|f| f.id).collect();
+        let sorted_order: Vec<FileId> = file_list.get_all_files().map(|f| f.id()).collect();
         assert_eq!(sorted_order, vec![file_a, file_b, file_c], "Should be sorted alphabetically");
     }
 
@@ -843,7 +843,7 @@ mod code_index_changes {
         codebook.sort_code_defs_by_name();
 
         // Assert: Duplicates should be stable (maintain relative order) or at least not crash
-        let sorted_order: Vec<CodeDefId> = codebook.get_all_code_defs().map(|c| c.id).collect();
+        let sorted_order: Vec<CodeDefId> = codebook.get_all_code_defs().map(|c| c.id()).collect();
         assert_eq!(sorted_order.len(), 3, "All code defs should still exist");
 
         // "Duplicate" entries should come before "Unique"
@@ -866,7 +866,7 @@ mod code_index_changes {
         // Assert: Theme associations should be preserved
         assert_eq!(codebook.get_codes_in_theme(theme_id).count(), 2, "Theme should still have 2 codes");
 
-        let theme_codes: Vec<CodeDefId> = codebook.get_codes_in_theme(theme_id).map(|c| c.id).collect();
+        let theme_codes: Vec<CodeDefId> = codebook.get_codes_in_theme(theme_id).map(|c| c.id()).collect();
         assert!(theme_codes.contains(&code_a), "Theme should still contain code_a");
         assert!(theme_codes.contains(&code_z), "Theme should still contain code_z");
     }
@@ -898,7 +898,7 @@ mod code_index_changes {
         file_list.sort_files_by_name();
 
         // Assert: Should be sorted by full path including extension
-        let sorted_order: Vec<FileId> = file_list.get_all_files().map(|f| f.id).collect();
+        let sorted_order: Vec<FileId> = file_list.get_all_files().map(|f| f.id()).collect();
         assert_eq!(sorted_order, vec![file_pdf, file_txt, file_md], "Should be sorted alphabetically by full path");
     }
 }
@@ -913,26 +913,12 @@ mod highlight_edge_cases {
     fn test_highlight_with_equal_start_and_end() {
         // Setup: Create highlight with start == end
         let block_id = BlockId(Uuid::new_v4());
-        let highlight = Highlight::new(block_id, 5, 5);
+        let highlight = Highlight::new(block_id, 5, block_id, 5);
 
-        // Assert: Should be empty with zero length
-        assert!(highlight.is_empty(), "Highlight with equal start and end should be empty");
-        assert_eq!(highlight.len(), 0, "Length should be 0");
+        // Assert
         assert_eq!(highlight.start(), 5, "Start should be 5");
         assert_eq!(highlight.end(), 5, "End should be 5");
-    }
-
-    #[test]
-    fn test_highlight_swaps_when_start_greater_than_end() {
-        // Setup: Create highlight with start > end
-        let block_id = BlockId(Uuid::new_v4());
-        let highlight = Highlight::new(block_id, 100, 50);
-
-        // Assert: Should automatically swap so start <= end
-        assert_eq!(highlight.start(), 50, "Start should be swapped to smaller value");
-        assert_eq!(highlight.end(), 100, "End should be swapped to larger value");
-        assert_eq!(highlight.len(), 50, "Length should be 50");
-        assert!(!highlight.is_empty(), "Should not be empty");
+        assert!(!highlight.is_multi_block());
     }
 
     #[test]
@@ -941,34 +927,33 @@ mod highlight_edge_cases {
         let block_id = BlockId(Uuid::new_v4());
         let large_start = 1_000_000;
         let large_end = 2_000_000;
-        let highlight = Highlight::new(block_id, large_start, large_end);
+        let highlight = Highlight::new(block_id, large_start, block_id, large_end);
 
         // Assert: Should handle large values correctly
         assert_eq!(highlight.start(), large_start);
         assert_eq!(highlight.end(), large_end);
-        assert_eq!(highlight.len(), 1_000_000);
     }
 
     #[test]
     fn test_highlight_with_zero_start() {
         // Setup: Create highlight starting at 0
         let block_id = BlockId(Uuid::new_v4());
-        let highlight = Highlight::new(block_id, 0, 100);
+        let highlight = Highlight::new(block_id, 0, block_id, 100);
 
         // Assert: Should work correctly with 0 start
         assert_eq!(highlight.start(), 0);
         assert_eq!(highlight.end(), 100);
-        assert_eq!(highlight.len(), 100);
     }
+
     #[test]
     fn test_highlight_single_character() {
         // Setup: Create highlight for single character (length 1)
         let block_id = BlockId(Uuid::new_v4());
-        let highlight = Highlight::new(block_id, 10, 11);
+        let highlight = Highlight::new(block_id, 10, block_id, 11);
 
-        // Assert: Should have length 1
-        assert_eq!(highlight.len(), 1, "Single character highlight should have length 1");
-        assert!(!highlight.is_empty(), "Should not be empty");
+        // Assert
+        assert_eq!(highlight.start(), 10);
+        assert_eq!(highlight.end(), 11);
     }
 }
 // ===== Tests for file removal and code coordination =====
@@ -982,12 +967,12 @@ mod file_removal {
         let mut file_list = FileList::new();
 
         let file_id = FileId::generate();
-        let block = TextBlock::new(file_id, 0, "content".to_string());
-        let block_id = block.id;
+        let block = TextBlock::new(file_id, 0, "content".to_string(), String::new());
+        let block_id = block.id();
         file_list.add_file(file_id, "test.txt".to_string(), "test.txt".to_string(), FileType::PlainText, vec![block]);
 
         let code_def_id = codebook.create_code_def("Code1".to_string(), 1, None).unwrap();
-        let highlight = Highlight::new(block_id, 0, 5);
+        let highlight = Highlight::new(block_id, 0, block_id, 5);
         codebook.apply_code(code_def_id, highlight, "snip".to_string(), String::new(), String::new());
 
         // Verify code exists
@@ -1012,10 +997,10 @@ mod file_removal {
         let mut file_list = FileList::new();
 
         let file_id = FileId::generate();
-        let block1 = TextBlock::new(file_id, 0, "Block content 0".to_string());
-        let block2 = TextBlock::new(file_id, 1, "Block content 1".to_string());
-        let block1_id = block1.id;
-        let block2_id = block2.id;
+        let block1 = TextBlock::new(file_id, 0, "Block content 0".to_string(), String::new());
+        let block2 = TextBlock::new(file_id, 1, "Block content 1".to_string(), String::new());
+        let block1_id = block1.id();
+        let block2_id = block2.id();
         file_list.add_file(file_id, "test.txt".to_string(), "test.txt".to_string(), FileType::PlainText, vec![block1, block2]);
 
         let code_def_id = codebook.create_code_def("Code1".to_string(), 1, None).unwrap();
@@ -1060,8 +1045,8 @@ mod file_data_states {
         let mut file_list = FileList::new();
         let file_id = add_test_file(&mut file_list, "test.txt");
 
-        let block1 = TextBlock::new(file_id, 0, "First block".to_string());
-        let block2 = TextBlock::new(file_id, 1, "Second block".to_string());
+        let block1 = TextBlock::new(file_id, 0, "First block".to_string(), String::new());
+        let block2 = TextBlock::new(file_id, 1, "Second block".to_string(), String::new());
         let blocks = vec![block1, block2];
 
         // Execute: Set to Loaded state
@@ -1083,12 +1068,12 @@ mod file_data_states {
         let mut file_list = FileList::new();
         let file_id = add_test_file(&mut file_list, "test.txt");
 
-        let block = TextBlock::new(file_id, 0, "Original".to_string());
+        let block = TextBlock::new(file_id, 0, "Original".to_string(), String::new());
         let file = file_list.file_mut(file_id).unwrap();
         file.set_data_state(DataState::Loaded(vec![block]));
 
         // Execute: Transition to Modified state
-        let modified_block = TextBlock::new(file_id, 0, "Modified content".to_string());
+        let modified_block = TextBlock::new(file_id, 0, "Modified content".to_string(), String::new());
         let file = file_list.file_mut(file_id).unwrap();
         file.set_data_state(DataState::Modified(vec![modified_block]));
 
@@ -1133,7 +1118,7 @@ mod file_data_states {
         let mut file_list = FileList::new();
         let file_id = add_test_file(&mut file_list, "test.txt");
 
-        let block = TextBlock::new(file_id, 0, "Content".to_string());
+        let block = TextBlock::new(file_id, 0, "Content".to_string(), String::new());
         let file = file_list.file_mut(file_id).unwrap();
         file.set_data_state(DataState::Loaded(vec![block]));
 
@@ -1383,5 +1368,348 @@ mod theme_mapping_domain_tests {
         );
         assert_eq!(codebook.get_codes_in_theme(theme_a).count(), 0, "Theme A should have 0 codes");
         assert_eq!(codebook.get_codes_in_theme(theme_b).count(), 1, "Theme B should have 1 code");
+    }
+}
+
+// ===== Tests for multi-block highlights (Ticket 5) =====
+
+mod multi_block_highlights {
+    use super::*;
+
+    #[test]
+    fn test_highlight_is_multi_block_returns_false_for_single_block() {
+        // Setup
+        let block_id = BlockId(Uuid::new_v4());
+        let highlight = Highlight::new(block_id, 0, block_id, 10);
+
+        // Assert
+        assert!(!highlight.is_multi_block(), "Single-block highlight should return false");
+        assert_eq!(highlight.start_block(), block_id);
+        assert_eq!(highlight.end_block(), block_id);
+    }
+
+    #[test]
+    fn test_highlight_is_multi_block_returns_true_for_spanning() {
+        // Setup
+        let block_a = BlockId(Uuid::new_v4());
+        let block_b = BlockId(Uuid::new_v4());
+        let highlight = Highlight::new(block_a, 5, block_b, 10);
+
+        // Assert
+        assert!(highlight.is_multi_block(), "Spanning highlight should return true");
+        assert_eq!(highlight.start_block(), block_a);
+        assert_eq!(highlight.end_block(), block_b);
+        assert_eq!(highlight.start(), 5);
+        assert_eq!(highlight.end(), 10);
+    }
+
+    #[test]
+    fn test_spanning_highlight_does_not_normalize() {
+        // Setup: start > end in a spanning highlight should NOT swap
+        let block_a = BlockId(Uuid::new_v4());
+        let block_b = BlockId(Uuid::new_v4());
+        let highlight = Highlight::new(block_a, 100, block_b, 5);
+
+        // Assert: no normalization applied
+        assert_eq!(highlight.start(), 100);
+        assert_eq!(highlight.end(), 5);
+    }
+
+    #[test]
+    fn test_get_codes_for_file_finds_multi_block_code_by_start_block() {
+        // Setup: create two files, apply a multi-block code spanning blocks in file_a
+        let mut codebook = create_test_codebook();
+        let file_a = create_test_file("a.txt", 3);
+        let file_b = create_test_file("b.txt", 2);
+        let block_map = build_block_map(&[&file_a, &file_b]);
+
+        let code_def_id = codebook.create_code_def("MultiCode".to_string(), 1, None).unwrap();
+        let blocks_a = file_a.blocks().unwrap();
+
+        // Apply a multi-block highlight spanning blocks 0 and 2 of file_a
+        let highlight = Highlight::new(blocks_a[0].id(), 0, blocks_a[2].id(), 10);
+        let multi_code_id = codebook.apply_code(
+            code_def_id, highlight, "spanning snippet".to_string(),
+            String::new(), String::new(),
+        );
+
+        // Execute
+        let codes_a: Vec<&QualCode> = codebook.get_codes_for_file(file_a.id(), &block_map).collect();
+        let codes_b: Vec<&QualCode> = codebook.get_codes_for_file(file_b.id(), &block_map).collect();
+
+        // Assert
+        assert_eq!(codes_a.len(), 1, "File A should have the multi-block code");
+        assert_eq!(codes_a[0].id(), multi_code_id);
+        assert_eq!(codes_b.len(), 0, "File B should have no codes");
+    }
+
+    #[test]
+    fn test_remove_codes_for_file_removes_multi_block_code() {
+        // Setup
+        let mut codebook = create_test_codebook();
+        let file_a = create_test_file("a.txt", 3);
+        let block_map = build_block_map(&[&file_a]);
+
+        let code_def_id = codebook.create_code_def("MultiCode".to_string(), 1, None).unwrap();
+        let blocks = file_a.blocks().unwrap();
+
+        let highlight = Highlight::new(blocks[0].id(), 0, blocks[2].id(), 10);
+        codebook.apply_code(code_def_id, highlight, "snippet".to_string(), String::new(), String::new());
+        assert_eq!(codebook.get_all_qual_codes().len(), 1);
+
+        // Execute
+        codebook.remove_codes_for_file(file_a.id(), &block_map);
+
+        // Assert
+        assert_eq!(codebook.get_all_qual_codes().len(), 0, "Multi-block code should be removed");
+    }
+
+    #[test]
+    fn test_qual_code_start_and_end_block_accessors() {
+        // Setup
+        let mut codebook = create_test_codebook();
+        let code_def_id = codebook.create_code_def("Code".to_string(), 1, None).unwrap();
+        let block_a = BlockId(Uuid::new_v4());
+        let block_b = BlockId(Uuid::new_v4());
+
+        let highlight = Highlight::new(block_a, 0, block_b, 20);
+        let qual_code_id = codebook.apply_code(
+            code_def_id, highlight, "snippet".to_string(), String::new(), String::new(),
+        );
+
+        // Execute
+        let qc = codebook.get_all_qual_codes().iter().find(|qc| qc.id() == qual_code_id).unwrap();
+
+        // Assert
+        assert_eq!(qc.start_block_id(), block_a);
+        assert_eq!(qc.end_block_id(), block_b);
+    }
+}
+
+// ===== Tests for FileList::find_block and find_blocks_in_range (Ticket 5) =====
+
+mod file_list_block_queries {
+    use super::*;
+
+    #[test]
+    fn test_find_block_returns_existing_block() {
+        // Setup
+        let mut file_list = FileList::new();
+        let file_id = FileId::generate();
+        let block = TextBlock::new(file_id, 0, "content".to_string(), String::new());
+        let block_id = block.id();
+        file_list.add_file(file_id, "test.txt".to_string(), "test.txt".to_string(), FileType::PlainText, vec![block]);
+
+        // Execute
+        let found = file_list.find_block(block_id);
+
+        // Assert
+        assert!(found.is_some(), "Should find existing block");
+        assert_eq!(found.unwrap().id(), block_id);
+    }
+
+    #[test]
+    fn test_find_block_returns_none_for_missing_block() {
+        // Setup
+        let file_list = FileList::new();
+        let fake_id = BlockId(Uuid::new_v4());
+
+        // Execute
+        let found = file_list.find_block(fake_id);
+
+        // Assert
+        assert!(found.is_none(), "Should return None for nonexistent block");
+    }
+
+    #[test]
+    fn test_find_blocks_in_range_same_file_correct_order() {
+        // Setup
+        let mut file_list = FileList::new();
+        let file_id = FileId::generate();
+        let b0 = TextBlock::new(file_id, 0, "block 0".to_string(), String::new());
+        let b1 = TextBlock::new(file_id, 1, "block 1".to_string(), String::new());
+        let b2 = TextBlock::new(file_id, 2, "block 2".to_string(), String::new());
+        let id0 = b0.id();
+        let id2 = b2.id();
+        file_list.add_file(file_id, "test.txt".to_string(), "test.txt".to_string(), FileType::PlainText, vec![b0, b1, b2]);
+
+        // Execute
+        let result = file_list.find_blocks_in_range(id0, id2);
+
+        // Assert
+        assert!(result.is_ok());
+        let blocks = result.unwrap();
+        assert_eq!(blocks.len(), 3, "Range from block 0 to block 2 should include all 3 blocks");
+        assert_eq!(blocks[0].sequence, 0);
+        assert_eq!(blocks[1].sequence, 1);
+        assert_eq!(blocks[2].sequence, 2);
+    }
+
+    #[test]
+    fn test_find_blocks_in_range_single_block() {
+        // Setup
+        let mut file_list = FileList::new();
+        let file_id = FileId::generate();
+        let b0 = TextBlock::new(file_id, 0, "block 0".to_string(), String::new());
+        let id0 = b0.id();
+        file_list.add_file(file_id, "test.txt".to_string(), "test.txt".to_string(), FileType::PlainText, vec![b0]);
+
+        // Execute: same block for start and end
+        let result = file_list.find_blocks_in_range(id0, id0);
+
+        // Assert
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 1, "Single block range should return 1 block");
+    }
+
+    #[test]
+    fn test_find_blocks_in_range_different_files_returns_error() {
+        // Setup
+        let mut file_list = FileList::new();
+        let file_a = FileId::generate();
+        let file_b = FileId::generate();
+        let ba = TextBlock::new(file_a, 0, "a".to_string(), String::new());
+        let bb = TextBlock::new(file_b, 0, "b".to_string(), String::new());
+        let id_a = ba.id();
+        let id_b = bb.id();
+        file_list.add_file(file_a, "a.txt".to_string(), "a.txt".to_string(), FileType::PlainText, vec![ba]);
+        file_list.add_file(file_b, "b.txt".to_string(), "b.txt".to_string(), FileType::PlainText, vec![bb]);
+
+        // Execute
+        let result = file_list.find_blocks_in_range(id_a, id_b);
+
+        // Assert
+        assert!(result.is_err());
+        match result {
+            Err(FileListError::BlocksInDifferentFiles) => {}
+            _ => panic!("Expected BlocksInDifferentFiles error"),
+        }
+    }
+
+    #[test]
+    fn test_find_blocks_in_range_invalid_order_returns_error() {
+        // Setup
+        let mut file_list = FileList::new();
+        let file_id = FileId::generate();
+        let b0 = TextBlock::new(file_id, 0, "block 0".to_string(), String::new());
+        let b1 = TextBlock::new(file_id, 1, "block 1".to_string(), String::new());
+        let id0 = b0.id();
+        let id1 = b1.id();
+        file_list.add_file(file_id, "test.txt".to_string(), "test.txt".to_string(), FileType::PlainText, vec![b0, b1]);
+
+        // Execute: end block before start block
+        let result = file_list.find_blocks_in_range(id1, id0);
+
+        // Assert
+        assert!(result.is_err());
+        match result {
+            Err(FileListError::InvalidBlockOrder) => {}
+            _ => panic!("Expected InvalidBlockOrder error"),
+        }
+    }
+
+    #[test]
+    fn test_find_blocks_in_range_block_not_found_returns_error() {
+        // Setup
+        let file_list = FileList::new();
+        let fake_id = BlockId(Uuid::new_v4());
+
+        // Execute
+        let result = file_list.find_blocks_in_range(fake_id, fake_id);
+
+        // Assert
+        assert!(result.is_err());
+        match result {
+            Err(FileListError::BlockNotFound(id)) => {
+                assert_eq!(id, fake_id);
+            }
+            _ => panic!("Expected BlockNotFound error"),
+        }
+    }
+}
+
+// ===== Tests for QualCode coding domain operations (Ticket 6) =====
+
+mod coding_domain_tests {
+    use super::*;
+
+    #[test]
+    fn test_set_def_id_changes_code_definition() {
+        // Setup
+        let mut codebook = create_test_codebook();
+        let def_a = codebook.create_code_def("DefA".to_string(), 1, None).unwrap();
+        let def_b = codebook.create_code_def("DefB".to_string(), 2, None).unwrap();
+
+        let file = create_test_file("test.txt", 1);
+        let block_id = file.blocks().unwrap()[0].id();
+        let qc_id = apply_test_code(&mut codebook, block_id, def_a, "snippet");
+
+        // Verify initial def_id
+        let qc = codebook.qual_code_mut(qc_id).unwrap();
+        assert_eq!(qc.def_id(), def_a, "Initial def_id should be def_a");
+
+        // Execute
+        qc.set_def_id(def_b);
+
+        // Assert
+        let qc = codebook.get_all_qual_codes().iter().find(|qc| qc.id() == qc_id).unwrap();
+        assert_eq!(qc.def_id(), def_b, "def_id should be changed to def_b");
+    }
+
+    #[test]
+    fn test_update_highlight_changes_all_fields() {
+        // Setup
+        let mut codebook = create_test_codebook();
+        let def_id = codebook.create_code_def("Code".to_string(), 1, None).unwrap();
+
+        let block_a = BlockId(Uuid::new_v4());
+        let block_b = BlockId(Uuid::new_v4());
+
+        let original_highlight = Highlight::new(block_a, 0, block_a, 10);
+        let qc_id = codebook.apply_code(
+            def_id, original_highlight,
+            "original snippet".to_string(),
+            "original before".to_string(),
+            "original after".to_string(),
+        );
+
+        // Execute
+        let new_highlight = Highlight::new(block_b, 5, block_b, 20);
+        let qc = codebook.qual_code_mut(qc_id).unwrap();
+        qc.update_highlight(
+            new_highlight,
+            "new snippet".to_string(),
+            "new before".to_string(),
+            "new after".to_string(),
+        );
+
+        // Assert
+        let qc = codebook.get_all_qual_codes().iter().find(|qc| qc.id() == qc_id).unwrap();
+        assert_eq!(qc.snippet(), "new snippet");
+        assert_eq!(qc.start_block_id(), block_b, "start_block should be updated");
+        assert_eq!(qc.end_block_id(), block_b, "end_block should be updated");
+        assert_eq!(qc.position(), (5, 20), "position should be updated");
+    }
+
+    #[test]
+    fn test_qual_code_mut_returns_some_for_existing() {
+        // Setup
+        let mut codebook = create_test_codebook();
+        let def_id = codebook.create_code_def("Code".to_string(), 1, None).unwrap();
+        let block_id = BlockId(Uuid::new_v4());
+        let qc_id = apply_test_code(&mut codebook, block_id, def_id, "snippet");
+
+        // Execute & Assert
+        assert!(codebook.qual_code_mut(qc_id).is_some(), "Should return Some for existing qual code");
+    }
+
+    #[test]
+    fn test_qual_code_mut_returns_none_for_nonexistent() {
+        // Setup
+        let mut codebook = create_test_codebook();
+        let fake_id = QualCodeId(Uuid::new_v4());
+
+        // Execute & Assert
+        assert!(codebook.qual_code_mut(fake_id).is_none(), "Should return None for nonexistent qual code");
     }
 }

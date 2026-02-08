@@ -2,8 +2,8 @@
 use crate::domain::*;
 use crate::ports::*;
 use crate::actions::*;
-mod file_processing;
-use file_processing::split_into_blocks;
+mod text_processing;
+use text_processing::{split_into_blocks, extract_snippet, extract_context_before, extract_context_after};
 
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -212,7 +212,7 @@ where
     async fn handle_file_action(&self, action: FileAction) -> Result<ActionResult> {
         match action {
             FileAction::ImportFile(path) => {
-                let canonical = path.canonicalize()
+                let canonical = self.file_loader.canonicalize(&path).await
                     .context("Failed to canonicalize file path")?;
                 let canonical_str = path_to_string(&canonical)?;
 
@@ -250,7 +250,7 @@ where
                 Ok(ActionResult::FileRemoved(id))
             }
             FileAction::ReloadFile(id, path) => {
-                let canonical = path.canonicalize()
+                let canonical = self.file_loader.canonicalize(&path).await
                     .context("Failed to canonicalize file path")?;
                 let canonical_str = path_to_string(&canonical)?;
 
@@ -349,13 +349,54 @@ where
     }
 
     fn handle_coding_action(&self, action: CodingAction) -> Result<ActionResult> {
-        let state = self.write_state();
+        let mut state = self.write_state();
         if !state.is_loaded() { bail!("No project loaded"); }
-        drop(state);
 
         match action {
-            CodingAction::ApplyCode { code_def_id, highlight, snippet } => {
-                todo!("build out code application")
+            CodingAction::ApplyCode { code_def_id, highlight } => {
+                state.codebook.code_def(code_def_id)
+                    .ok_or(CodeBookError::CodeDefNotFound(code_def_id))
+                    .context("Cannot apply code: definition not found")?;
+
+                let snippet = extract_snippet(&state.filemanager, &highlight)
+                    .context("Failed to extract snippet for applied code")?;
+                let context_before = extract_context_before(&state.filemanager, &highlight);
+                let context_after = extract_context_after(&state.filemanager, &highlight);
+
+                let id = state.codebook.apply_code(code_def_id, highlight, snippet, context_before, context_after);
+                state.mark_modified();
+                Ok(ActionResult::CodeApplied(id))
+            }
+            CodingAction::DeleteCode { id } => {
+                state.codebook.remove_qual_code(id)
+                    .context("Failed to delete qual code")?;
+                state.mark_modified();
+                Ok(ActionResult::Success)
+            }
+            CodingAction::ReassignCode { id, new_def_id } => {
+                state.codebook.code_def(new_def_id)
+                    .ok_or(CodeBookError::CodeDefNotFound(new_def_id))
+                    .context("Cannot reassign code: target definition not found")?;
+
+                let qc = state.codebook.qual_code_mut(id)
+                    .ok_or(CodeBookError::QualCodeNotFound(id))
+                    .context("Cannot reassign code: qual code not found")?;
+                qc.set_def_id(new_def_id);
+                state.mark_modified();
+                Ok(ActionResult::Success)
+            }
+            CodingAction::EditHighlight { id, new_highlight } => {
+                let snippet = extract_snippet(&state.filemanager, &new_highlight)
+                    .context("Failed to extract snippet for edited highlight")?;
+                let context_before = extract_context_before(&state.filemanager, &new_highlight);
+                let context_after = extract_context_after(&state.filemanager, &new_highlight);
+
+                let qc = state.codebook.qual_code_mut(id)
+                    .ok_or(CodeBookError::QualCodeNotFound(id))
+                    .context("Cannot edit highlight: qual code not found")?;
+                qc.update_highlight(new_highlight, snippet, context_before, context_after);
+                state.mark_modified();
+                Ok(ActionResult::Success)
             }
         }
     }
