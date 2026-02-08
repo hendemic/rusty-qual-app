@@ -94,13 +94,6 @@ async fn create_test_controller() -> AppController<MockProjectRepo, MockFileHand
         .expect("controller creation should succeed")
 }
 
-async fn create_controller_with_handler(handler: MockFileHandler) -> AppController<MockProjectRepo, MockFileHandler, MockConfigStore> {
-    let state = Arc::new(RwLock::new(AppState::new(DataState::Empty, AppConfig::default())));
-    AppController::new(state, MockProjectRepo, handler, MockConfigStore)
-        .await
-        .expect("controller creation should succeed")
-}
-
 // ===== Save Guard Tests =====
 
 mod save_guard {
@@ -161,12 +154,9 @@ mod file_actions {
     use tempfile::NamedTempFile;
     use std::io::Write;
 
-    /// Creates a stale FileId by adding and immediately removing a file.
+    /// Creates a stale FileId that doesn't exist in any FileList.
     fn create_stale_file_id() -> FileId {
-        let mut fl = FileList::new();
-        let id = fl.add_file("stale.txt".to_string(), FileType::PlainText);
-        fl.remove_file(id).unwrap();
-        id
+        FileId::generate()
     }
 
     /// Creates a real temp file so that canonicalize() succeeds in the handlers.
@@ -178,40 +168,108 @@ mod file_actions {
     }
 
     #[tokio::test]
-    async fn test_add_file_returns_file_added() {
+    async fn test_import_file_returns_file_imported() {
         // Setup
         let controller = create_test_controller().await;
         let tmp = create_temp_file("hello");
 
         // Execute
         let result = controller
-            .handle_action(Action::File(FileAction::AddFile(tmp.path().to_path_buf())))
+            .handle_action(Action::File(FileAction::ImportFile(tmp.path().to_path_buf())))
             .await;
 
         // Assert
-        assert!(result.is_ok(), "AddFile should succeed");
+        assert!(result.is_ok(), "ImportFile should succeed");
         match result.unwrap() {
-            ActionResult::FileAdded(_id) => {} // expected
-            _ => panic!("Expected FileAdded"),
+            ActionResult::FileImported(_id) => {} // expected
+            _ => panic!("Expected FileImported"),
         }
     }
 
     #[tokio::test]
-    async fn test_add_file_duplicate_path_returns_error() {
+    async fn test_import_file_creates_blocks() {
+        // Setup: controller with multi-paragraph content
+        let handler = MockFileHandler::new()
+            .with_content("Para one.\n\nPara two.\n\nPara three.");
+        let state = Arc::new(RwLock::new(AppState::new(DataState::Empty, AppConfig::default())));
+        let controller = AppController::new(
+            state.clone(),
+            MockProjectRepo,
+            handler,
+            MockConfigStore,
+        )
+        .await
+        .unwrap();
+
+        let tmp = create_temp_file("ignored by mock");
+
+        // Execute
+        let result = controller
+            .handle_action(Action::File(FileAction::ImportFile(tmp.path().to_path_buf())))
+            .await
+            .unwrap();
+        let file_id = match result {
+            ActionResult::FileImported(id) => id,
+            _ => panic!("Expected FileImported"),
+        };
+
+        // Assert: blocks were created with correct file_id
+        let s = state.read().unwrap();
+        let file = s.filemanager.file(file_id).unwrap();
+        let blocks = file.blocks().expect("File should have blocks after import");
+        assert_eq!(blocks.len(), 3, "Should have 3 paragraph blocks");
+        for block in blocks {
+            assert_eq!(block.file_id, file_id, "Block file_id should match");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_import_file_sets_name_from_filename() {
+        // Setup
+        let state = Arc::new(RwLock::new(AppState::new(DataState::Empty, AppConfig::default())));
+        let controller = AppController::new(
+            state.clone(),
+            MockProjectRepo,
+            MockFileHandler::new(),
+            MockConfigStore,
+        )
+        .await
+        .unwrap();
+
+        let tmp = create_temp_file("content");
+
+        // Execute
+        let result = controller
+            .handle_action(Action::File(FileAction::ImportFile(tmp.path().to_path_buf())))
+            .await
+            .unwrap();
+        let file_id = match result {
+            ActionResult::FileImported(id) => id,
+            _ => panic!("Expected FileImported"),
+        };
+
+        // Assert: name should be the filename portion of the path
+        let s = state.read().unwrap();
+        let file = s.filemanager.file(file_id).unwrap();
+        assert!(!file.name().is_empty(), "File name should not be empty");
+    }
+
+    #[tokio::test]
+    async fn test_import_file_duplicate_path_returns_error() {
         // Setup
         let controller = create_test_controller().await;
         let tmp = create_temp_file("hello");
         let path = tmp.path().to_path_buf();
 
-        // Add once
+        // Import once
         let first = controller
-            .handle_action(Action::File(FileAction::AddFile(path.clone())))
+            .handle_action(Action::File(FileAction::ImportFile(path.clone())))
             .await;
-        assert!(first.is_ok(), "First AddFile should succeed");
+        assert!(first.is_ok(), "First ImportFile should succeed");
 
-        // Execute: add same path again
+        // Execute: import same path again
         let result = controller
-            .handle_action(Action::File(FileAction::AddFile(path)))
+            .handle_action(Action::File(FileAction::ImportFile(path)))
             .await;
 
         // Assert
@@ -224,16 +282,14 @@ mod file_actions {
                     err_msg
                 );
             }
-            Ok(_) => panic!("Expected error for duplicate AddFile"),
+            Ok(_) => panic!("Expected error for duplicate ImportFile"),
         }
     }
 
     #[tokio::test]
-    async fn test_add_file_marks_state_modified() {
+    async fn test_import_file_marks_state_modified() {
         // Setup
         let state = Arc::new(RwLock::new(AppState::new(DataState::Empty, AppConfig::default())));
-
-        // Load a project first so mark_modified transitions Loaded -> Modified
         let controller = AppController::new(
             state.clone(),
             MockProjectRepo,
@@ -253,7 +309,7 @@ mod file_actions {
 
         // Execute
         controller
-            .handle_action(Action::File(FileAction::AddFile(tmp.path().to_path_buf())))
+            .handle_action(Action::File(FileAction::ImportFile(tmp.path().to_path_buf())))
             .await
             .unwrap();
 
@@ -261,71 +317,8 @@ mod file_actions {
         let s = state.read().unwrap();
         assert!(
             matches!(s.project, DataState::Modified(_)),
-            "Project state should be Modified after AddFile"
+            "Project state should be Modified after ImportFile"
         );
-    }
-
-    #[tokio::test]
-    async fn test_load_file_returns_file_loaded() {
-        // Setup: controller with multi-paragraph content so blocks are created
-        let handler = MockFileHandler::new()
-            .with_content("Para one.\n\nPara two.\n\nPara three.");
-        let state = Arc::new(RwLock::new(AppState::new(DataState::Empty, AppConfig::default())));
-        let controller = AppController::new(
-            state.clone(),
-            MockProjectRepo,
-            handler,
-            MockConfigStore,
-        )
-        .await
-        .unwrap();
-
-        // Add a file first
-        let tmp = create_temp_file("ignored by mock");
-        let add_result = controller
-            .handle_action(Action::File(FileAction::AddFile(tmp.path().to_path_buf())))
-            .await
-            .unwrap();
-        let file_id = match add_result {
-            ActionResult::FileAdded(id) => id,
-            _ => panic!("Expected FileAdded"),
-        };
-
-        // Execute
-        let result = controller
-            .handle_action(Action::File(FileAction::LoadFile(file_id)))
-            .await;
-
-        // Assert
-        assert!(result.is_ok(), "LoadFile should succeed");
-        match result.unwrap() {
-            ActionResult::FileLoaded(id) => assert_eq!(id, file_id),
-            _ => panic!("Expected FileLoaded"),
-        }
-
-        // Verify blocks were created with correct file_id
-        let s = state.read().unwrap();
-        let file = s.filemanager.file(file_id).unwrap();
-        let blocks = file.blocks().expect("File should have loaded blocks");
-        assert_eq!(blocks.len(), 3, "Should have 3 paragraph blocks");
-        for block in blocks {
-            assert_eq!(block.file_id, file_id, "Block file_id should match");
-        }
-    }
-
-    #[tokio::test]
-    async fn test_load_file_nonexistent_id_returns_error() {
-        // Setup
-        let controller = create_test_controller().await;
-        let fake_id = create_stale_file_id();
-
-        // Execute
-        let result = controller
-            .handle_action(Action::File(FileAction::LoadFile(fake_id)))
-            .await;
-
-        // Assert
-        assert!(result.is_err(), "LoadFile with nonexistent ID should error");
     }
 
     #[tokio::test]
@@ -333,13 +326,13 @@ mod file_actions {
         // Setup
         let controller = create_test_controller().await;
         let tmp = create_temp_file("content");
-        let add_result = controller
-            .handle_action(Action::File(FileAction::AddFile(tmp.path().to_path_buf())))
+        let import_result = controller
+            .handle_action(Action::File(FileAction::ImportFile(tmp.path().to_path_buf())))
             .await
             .unwrap();
-        let file_id = match add_result {
-            ActionResult::FileAdded(id) => id,
-            _ => panic!("Expected FileAdded"),
+        let file_id = match import_result {
+            ActionResult::FileImported(id) => id,
+            _ => panic!("Expected FileImported"),
         };
 
         // Execute
@@ -357,7 +350,7 @@ mod file_actions {
 
     #[tokio::test]
     async fn test_remove_file_cascades_qual_codes() {
-        // Setup: controller with content, add file, load it, apply a qual code, then remove
+        // Setup: controller with content, import file, apply a qual code, then remove
         let handler = MockFileHandler::new()
             .with_content("Block one.\n\nBlock two.");
         let state = Arc::new(RwLock::new(AppState::new(DataState::Empty, AppConfig::default())));
@@ -371,20 +364,14 @@ mod file_actions {
         .unwrap();
 
         let tmp = create_temp_file("ignored");
-        let add_result = controller
-            .handle_action(Action::File(FileAction::AddFile(tmp.path().to_path_buf())))
+        let import_result = controller
+            .handle_action(Action::File(FileAction::ImportFile(tmp.path().to_path_buf())))
             .await
             .unwrap();
-        let file_id = match add_result {
-            ActionResult::FileAdded(id) => id,
-            _ => panic!("Expected FileAdded"),
+        let file_id = match import_result {
+            ActionResult::FileImported(id) => id,
+            _ => panic!("Expected FileImported"),
         };
-
-        // Load the file to get blocks
-        controller
-            .handle_action(Action::File(FileAction::LoadFile(file_id)))
-            .await
-            .unwrap();
 
         // Apply a qual code referencing a block from this file
         {
@@ -445,15 +432,15 @@ mod file_actions {
             .await
             .unwrap();
 
-        // Add and then remove a file
+        // Import a file
         let tmp = create_temp_file("content");
-        let add_result = controller
-            .handle_action(Action::File(FileAction::AddFile(tmp.path().to_path_buf())))
+        let import_result = controller
+            .handle_action(Action::File(FileAction::ImportFile(tmp.path().to_path_buf())))
             .await
             .unwrap();
-        let file_id = match add_result {
-            ActionResult::FileAdded(id) => id,
-            _ => panic!("Expected FileAdded"),
+        let file_id = match import_result {
+            ActionResult::FileImported(id) => id,
+            _ => panic!("Expected FileImported"),
         };
 
         // Save again to reset to Loaded
@@ -477,10 +464,10 @@ mod file_actions {
     }
 
     #[tokio::test]
-    async fn test_reattach_file_updates_path_and_clears_state() {
+    async fn test_reload_file_updates_path_and_blocks() {
         // Setup
         let handler = MockFileHandler::new()
-            .with_content("Some content.\n\nAnother para.");
+            .with_content("New content.\n\nNew paragraph.");
         let state = Arc::new(RwLock::new(AppState::new(DataState::Empty, AppConfig::default())));
         let controller = AppController::new(
             state.clone(),
@@ -491,42 +478,31 @@ mod file_actions {
         .await
         .unwrap();
 
-        // Add and load a file
+        // Import a file
         let tmp1 = create_temp_file("original");
-        let add_result = controller
-            .handle_action(Action::File(FileAction::AddFile(tmp1.path().to_path_buf())))
+        let import_result = controller
+            .handle_action(Action::File(FileAction::ImportFile(tmp1.path().to_path_buf())))
             .await
             .unwrap();
-        let file_id = match add_result {
-            ActionResult::FileAdded(id) => id,
-            _ => panic!("Expected FileAdded"),
+        let file_id = match import_result {
+            ActionResult::FileImported(id) => id,
+            _ => panic!("Expected FileImported"),
         };
 
-        controller
-            .handle_action(Action::File(FileAction::LoadFile(file_id)))
-            .await
-            .unwrap();
-
-        // Verify file has loaded blocks
-        {
-            let s = state.read().unwrap();
-            assert!(s.filemanager.file(file_id).unwrap().blocks().is_some(), "File should be loaded");
-        }
-
-        // Execute: reattach to a new path
+        // Execute: reload from a new path
         let tmp2 = create_temp_file("new content");
         let new_path = tmp2.path().to_path_buf();
         let canonical_new = new_path.canonicalize().unwrap();
 
         let result = controller
-            .handle_action(Action::File(FileAction::ReattachFile(file_id, new_path)))
+            .handle_action(Action::File(FileAction::ReloadFile(file_id, new_path)))
             .await;
 
         // Assert
-        assert!(result.is_ok(), "ReattachFile should succeed");
+        assert!(result.is_ok(), "ReloadFile should succeed");
         match result.unwrap() {
-            ActionResult::FileReattached(id) => assert_eq!(id, file_id),
-            _ => panic!("Expected FileReattached"),
+            ActionResult::FileReloaded(id) => assert_eq!(id, file_id),
+            _ => panic!("Expected FileReloaded"),
         }
 
         let s = state.read().unwrap();
@@ -536,14 +512,13 @@ mod file_actions {
             canonical_new.to_string_lossy().as_ref(),
             "Path should be updated to new canonical path"
         );
-        assert!(
-            file.blocks().is_none(),
-            "Data state should be cleared (Empty) after reattach"
-        );
+        // Blocks should be present (re-ingested from new source)
+        let blocks = file.blocks().expect("File should have blocks after reload");
+        assert_eq!(blocks.len(), 2, "Should have 2 paragraph blocks from new content");
     }
 
     #[tokio::test]
-    async fn test_reattach_file_nonexistent_id_returns_error() {
+    async fn test_reload_file_nonexistent_id_returns_error() {
         // Setup
         let controller = create_test_controller().await;
         let tmp = create_temp_file("content");
@@ -551,20 +526,19 @@ mod file_actions {
 
         // Execute
         let result = controller
-            .handle_action(Action::File(FileAction::ReattachFile(fake_id, tmp.path().to_path_buf())))
+            .handle_action(Action::File(FileAction::ReloadFile(fake_id, tmp.path().to_path_buf())))
             .await;
 
         // Assert
-        assert!(result.is_err(), "ReattachFile with nonexistent ID should error");
+        assert!(result.is_err(), "ReloadFile with nonexistent ID should error");
     }
 }
 
 // ===== File Processing Tests =====
 
-/// Creates a FileId for testing by adding a dummy file to a FileList.
+/// Creates a FileId for testing.
 fn test_file_id() -> FileId {
-    let mut fl = FileList::new();
-    fl.add_file("test.txt".to_string(), FileType::PlainText)
+    FileId::generate()
 }
 
 mod paragraph_splitting {

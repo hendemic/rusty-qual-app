@@ -207,45 +207,32 @@ where
 
     async fn handle_file_action(&self, action: FileAction) -> Result<ActionResult> {
         match action {
-            FileAction::AddFile(path) => {
+            FileAction::ImportFile(path) => {
                 let canonical = path.canonicalize()
                     .context("Failed to canonicalize file path")?;
                 let canonical_str = path_to_string(&canonical)?;
 
+                let name = canonical.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unnamed")
+                    .to_string();
+
                 let file_type = self.file_loader.detect_type(&canonical).await
                     .context("Failed to detect file type")?;
+
+                let content = self.file_loader.read_file_content(&canonical).await
+                    .context("Failed to read file content")?;
+
+                let id = FileId::generate();
+                let blocks = split_into_blocks(id, &content);
 
                 let mut state = self.write_state();
                 if state.filemanager.has_path(&canonical_str) {
                     bail!(FileListError::DuplicatePath(canonical_str));
                 }
-                let id = state.filemanager.add_file(canonical_str, file_type);
+                state.filemanager.add_file(id, name, canonical_str, file_type, blocks);
                 state.mark_modified();
-                Ok(ActionResult::FileAdded(id))
-            }
-            FileAction::LoadFile(id) => {
-                let path = {
-                    let state = self.read_state();
-                    let file = state.filemanager.file(id)
-                        .context("File not found")?;
-                    if file.blocks().is_some() {
-                        bail!("File is already loaded. Unload or remove it before reloading.");
-                    }
-                    file.path_buf()
-                };
-
-                let content = self.file_loader.read_file_content(&path).await
-                    .context("Failed to read file content")?;
-                let blocks = split_into_blocks(id, &content);
-
-                let mut state = self.write_state();
-                let file = state.filemanager.file_mut(id)
-                    .context("File not found after read")?;
-                if file.blocks().is_some() {
-                    bail!("File was loaded by a concurrent operation.");
-                }
-                file.set_data_state(DataState::Loaded(blocks));
-                Ok(ActionResult::FileLoaded(id))
+                Ok(ActionResult::FileImported(id))
             }
             FileAction::RemoveFile(id) => {
                 let mut state = self.write_state();
@@ -256,7 +243,7 @@ where
                 state.mark_modified();
                 Ok(ActionResult::FileRemoved(id))
             }
-            FileAction::ReattachFile(id, path) => {
+            FileAction::ReloadFile(id, path) => {
                 let canonical = path.canonicalize()
                     .context("Failed to canonicalize file path")?;
                 let canonical_str = path_to_string(&canonical)?;
@@ -264,21 +251,17 @@ where
                 let file_type = self.file_loader.detect_type(&canonical).await
                     .context("Failed to detect file type")?;
 
+                let content = self.file_loader.read_file_content(&canonical).await
+                    .context("Failed to read file content")?;
+
+                let blocks = split_into_blocks(id, &content);
+
                 let mut state = self.write_state();
-                if state.filemanager.file(id)
-                    .map(|f| f.path() != canonical_str)
-                    .unwrap_or(false)
-                    && state.filemanager.has_path(&canonical_str)
-                {
-                    bail!(FileListError::DuplicatePath(canonical_str));
-                }
                 let file = state.filemanager.file_mut(id)
-                    .context("File not found for reattachment")?;
-                file.set_path(canonical_str);
-                file.set_file_type(file_type);
-                file.set_data_state(DataState::Empty);
+                    .context("File not found for reload")?;
+                file.reload(canonical_str, file_type, blocks);
                 state.mark_modified();
-                Ok(ActionResult::FileReattached(id))
+                Ok(ActionResult::FileReloaded(id))
             }
         }
     }

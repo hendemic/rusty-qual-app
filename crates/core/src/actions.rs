@@ -20,11 +20,9 @@
     }
 
     pub enum FileAction {
-        AddFile(PathBuf),
-        LoadFile(FileId),
+        ImportFile(PathBuf),
         RemoveFile(FileId),
-        ReattachFile(FileId, PathBuf),
-        //FindFile(FileId) save this for future. noting here because losing file ref is important MVP handling
+        ReloadFile(FileId, PathBuf),
     }
 
     pub enum SchemaAction {
@@ -46,9 +44,8 @@
         SaveInProgress,
         ThemeCreated(ThemeId),
         CodeCreated(CodeDefId),
-        FileAdded(FileId),
-        FileLoaded(FileId),
+        FileImported(FileId),
         FileRemoved(FileId),
-        FileReattached(FileId),
+        FileReloaded(FileId),
         CodeApplied(QualCodeId),
     }

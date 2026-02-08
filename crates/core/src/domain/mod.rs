@@ -2,7 +2,7 @@
 use uuid::Uuid;
 use indexmap::IndexMap;
 use std::fmt;
-use std::path::{PathBuf};
+
 use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
 
@@ -10,6 +10,10 @@ use chrono::{DateTime, Utc};
 // Cross-referencing Uuid's vs embedding object references to avoid lifetime shinanigans, and for look up performance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FileId(Uuid);
+
+impl FileId {
+    pub fn generate() -> Self { FileId(Uuid::new_v4()) }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CodeDefId(Uuid);
@@ -486,28 +490,36 @@ impl TextBlock {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QualFile {
     pub id: FileId,
+    name: String,
     path: String,
+    imported_at: DateTime<Utc>,
     data_state: DataState<Vec<TextBlock>>,
     file_type: FileType,
 }
 
 impl QualFile {
-    fn new(path: String, file_type: FileType) -> Self {
-        let id = FileId(Uuid::new_v4());
-        QualFile { id, path, data_state: DataState::Empty, file_type }
+    fn new(id: FileId, name: String, path: String, file_type: FileType, blocks: Vec<TextBlock>) -> Self {
+        QualFile { id, name, path, imported_at: Utc::now(), data_state: DataState::Loaded(blocks), file_type }
     }
 
+    pub fn name(&self) -> &str { &self.name }
     pub fn path(&self) -> &str { &self.path }
-    pub fn path_buf(&self) -> PathBuf { PathBuf::from(&self.path) }
     pub fn file_type(&self) -> &FileType { &self.file_type }
-    pub fn set_file_type(&mut self, file_type: FileType) { self.file_type = file_type; }
-    pub fn set_path(&mut self, path: String) { self.path = path; }
+    pub fn imported_at(&self) -> DateTime<Utc> { self.imported_at }
     pub fn set_data_state(&mut self, data_state: DataState<Vec<TextBlock>>) { self.data_state = data_state; }
     pub fn blocks(&self) -> Option<&[TextBlock]> {
         match &self.data_state {
             DataState::Loaded(blocks) | DataState::Modified(blocks) => Some(blocks),
             DataState::Empty | DataState::Error => None,
         }
+    }
+
+    /// Re-imports file content from a new source path.
+    pub fn reload(&mut self, path: String, file_type: FileType, blocks: Vec<TextBlock>) {
+        self.path = path;
+        self.file_type = file_type;
+        self.imported_at = Utc::now();
+        self.data_state = DataState::Loaded(blocks);
     }
 }
 
@@ -525,9 +537,8 @@ impl FileList {
     pub fn new() -> Self {
         FileList { files: IndexMap::new() }
     }
-    pub fn add_file(&mut self, path: String, file_type: FileType) -> FileId {
-        let file = QualFile::new(path, file_type);
-        let id = file.id;
+    pub fn add_file(&mut self, id: FileId, name: String, path: String, file_type: FileType, blocks: Vec<TextBlock>) -> FileId {
+        let file = QualFile::new(id, name, path, file_type, blocks);
         self.files.insert(id, file);
         id
     }
@@ -565,7 +576,7 @@ impl FileList {
         Ok(())
     }
     pub fn sort_files_by_name(&mut self) {
-        self.files.sort_by(|_, a, _, b| a.path().cmp(b.path()));
+        self.files.sort_by(|_, a, _, b| a.name().cmp(b.name()));
     }
     pub fn file_count(&self) -> usize { self.files.len() }
     pub fn has_path(&self, path: &str) -> bool {

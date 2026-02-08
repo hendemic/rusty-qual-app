@@ -33,14 +33,11 @@ fn create_populated_data() -> (CodeBook, FileList) {
         None,
     );
 
-    // Add a file and create a block to get a valid BlockId
-    let file_id = filelist.add_file("interview_01.txt".to_string(), FileType::PlainText);
+    // Add a file with a block
+    let file_id = FileId::generate();
     let block = TextBlock::new(file_id, 0, "I really enjoyed it very much".to_string());
     let block_id = block.id;
-
-    // Set the file's data state with the block
-    let file = filelist.file_mut(file_id).unwrap();
-    file.set_data_state(DataState::Loaded(vec![block]));
+    filelist.add_file(file_id, "interview_01.txt".to_string(), "/path/to/interview_01.txt".to_string(), FileType::PlainText, vec![block]);
 
     // Apply a qual code
     let highlight = Highlight::new(block_id, 2, 19);

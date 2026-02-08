@@ -13,14 +13,17 @@ fn create_test_codebook() -> CodeBook {
 
 /// Creates a test file with a specified number of blocks
 fn create_test_file(file_path: &str, num_blocks: usize) -> QualFile {
-    let mut file = QualFile::new(file_path.to_string(), FileType::PlainText);
-    let mut blocks = Vec::new();
-    for i in 0..num_blocks {
-        let block = TextBlock::new(file.id, i, format!("Block content {}", i));
-        blocks.push(block);
-    }
-    file.set_data_state(DataState::Loaded(blocks));
-    file
+    let id = FileId::generate();
+    let blocks: Vec<TextBlock> = (0..num_blocks)
+        .map(|i| TextBlock::new(id, i, format!("Block content {}", i)))
+        .collect();
+    QualFile::new(id, file_path.to_string(), file_path.to_string(), FileType::PlainText, blocks)
+}
+
+/// Adds a simple test file to a FileList with no blocks
+fn add_test_file(file_list: &mut FileList, name: &str) -> FileId {
+    let id = FileId::generate();
+    file_list.add_file(id, name.to_string(), name.to_string(), FileType::PlainText, Vec::new())
 }
 
 /// Applies a code to a specific block in the codebook
@@ -693,9 +696,9 @@ mod code_index_changes {
         // Setup: Create FileList with 3 files
         let mut file_list = FileList::new();
 
-        let file_1 = file_list.add_file("file1.txt".to_string(), FileType::PlainText);
-        let file_2 = file_list.add_file("file2.txt".to_string(), FileType::PlainText);
-        let file_3 = file_list.add_file("file3.txt".to_string(), FileType::PlainText);
+        let file_1 = add_test_file(&mut file_list, "file1.txt");
+        let file_2 = add_test_file(&mut file_list, "file2.txt");
+        let file_3 = add_test_file(&mut file_list, "file3.txt");
 
         // Execute: Move file_3 to beginning
         let result = file_list.move_file_to_index(file_3, 0);
@@ -711,9 +714,9 @@ mod code_index_changes {
         // Setup: Create FileList with 3 files
         let mut file_list = FileList::new();
 
-        let file_1 = file_list.add_file("file1.txt".to_string(), FileType::PlainText);
-        let file_2 = file_list.add_file("file2.txt".to_string(), FileType::PlainText);
-        let file_3 = file_list.add_file("file3.txt".to_string(), FileType::PlainText);
+        let file_1 = add_test_file(&mut file_list, "file1.txt");
+        let file_2 = add_test_file(&mut file_list, "file2.txt");
+        let file_3 = add_test_file(&mut file_list, "file3.txt");
 
         // Execute: Swap indices 0 and 2
         let result = file_list.swap_files(0, 2);
@@ -729,8 +732,8 @@ mod code_index_changes {
         // Setup: Create FileList with 2 files
         let mut file_list = FileList::new();
 
-        let file_1 = file_list.add_file("file1.txt".to_string(), FileType::PlainText);
-        file_list.add_file("file2.txt".to_string(), FileType::PlainText);
+        let file_1 = add_test_file(&mut file_list, "file1.txt");
+        add_test_file(&mut file_list, "file2.txt");
 
         // Execute: Try to move to invalid index
         let result = file_list.move_file_to_index(file_1, 10);
@@ -751,8 +754,8 @@ mod code_index_changes {
         // Setup: Create FileList with 2 files
         let mut file_list = FileList::new();
 
-        let file_1 = file_list.add_file("file1.txt".to_string(), FileType::PlainText);
-        let file_2 = file_list.add_file("file2.txt".to_string(), FileType::PlainText);
+        let file_1 = add_test_file(&mut file_list, "file1.txt");
+        let file_2 = add_test_file(&mut file_list, "file2.txt");
 
         // Execute: Swap same index with itself
         let result = file_list.swap_files(0, 0);
@@ -815,9 +818,9 @@ mod code_index_changes {
         // Setup: Create files in random order
         let mut file_list = FileList::new();
 
-        let file_c = file_list.add_file("charlie.txt".to_string(), FileType::PlainText);
-        let file_a = file_list.add_file("alice.txt".to_string(), FileType::PlainText);
-        let file_b = file_list.add_file("bob.txt".to_string(), FileType::PlainText);
+        let file_c = add_test_file(&mut file_list, "charlie.txt");
+        let file_a = add_test_file(&mut file_list, "alice.txt");
+        let file_b = add_test_file(&mut file_list, "bob.txt");
 
         // Execute: Sort by name
         file_list.sort_files_by_name();
@@ -887,9 +890,9 @@ mod code_index_changes {
         // Setup: Create files with different extensions
         let mut file_list = FileList::new();
 
-        let file_txt = file_list.add_file("document.txt".to_string(), FileType::PlainText);
-        let file_md = file_list.add_file("readme.md".to_string(), FileType::Markdown);
-        let file_pdf = file_list.add_file("article.pdf".to_string(), FileType::Pdf);
+        let file_txt = file_list.add_file(FileId::generate(), "document.txt".to_string(), "document.txt".to_string(), FileType::PlainText, Vec::new());
+        let file_md = file_list.add_file(FileId::generate(), "readme.md".to_string(), "readme.md".to_string(), FileType::Markdown, Vec::new());
+        let file_pdf = file_list.add_file(FileId::generate(), "article.pdf".to_string(), "article.pdf".to_string(), FileType::Pdf, Vec::new());
 
         // Execute: Sort by name (path)
         file_list.sort_files_by_name();
@@ -974,16 +977,14 @@ mod file_removal {
 
     #[test]
     fn test_remove_file_leaves_codes_orphaned() {
-        // Setup: Create file with blocks and apply codes
+        // Setup: Create file with a block and apply a code
         let mut codebook = create_test_codebook();
         let mut file_list = FileList::new();
 
-        let file_id = file_list.add_file("test.txt".to_string(), FileType::PlainText);
-        let _file = file_list.file(file_id).unwrap();
-
-        // Manually add blocks to file (simulating what infrastructure would do)
+        let file_id = FileId::generate();
         let block = TextBlock::new(file_id, 0, "content".to_string());
         let block_id = block.id;
+        file_list.add_file(file_id, "test.txt".to_string(), "test.txt".to_string(), FileType::PlainText, vec![block]);
 
         let code_def_id = codebook.create_code_def("Code1".to_string(), 1, None);
         let highlight = Highlight::new(block_id, 0, 5);
@@ -1010,22 +1011,22 @@ mod file_removal {
         let mut codebook = create_test_codebook();
         let mut file_list = FileList::new();
 
-        let file_id = file_list.add_file("test.txt".to_string(), FileType::PlainText);
-
-        // Create blocks and add them to a test file
-        let mut test_file = create_test_file("test.txt", 2);
-        test_file.id = file_id; // Use the real file_id
+        let file_id = FileId::generate();
+        let block1 = TextBlock::new(file_id, 0, "Block content 0".to_string());
+        let block2 = TextBlock::new(file_id, 1, "Block content 1".to_string());
+        let block1_id = block1.id;
+        let block2_id = block2.id;
+        file_list.add_file(file_id, "test.txt".to_string(), "test.txt".to_string(), FileType::PlainText, vec![block1, block2]);
 
         let code_def_id = codebook.create_code_def("Code1".to_string(), 1, None);
-        let blocks = test_file.blocks().unwrap();
-        apply_test_code(&mut codebook, blocks[0].id, code_def_id, "snip1");
-        apply_test_code(&mut codebook, blocks[1].id, code_def_id, "snip2");
+        apply_test_code(&mut codebook, block1_id, code_def_id, "snip1");
+        apply_test_code(&mut codebook, block2_id, code_def_id, "snip2");
 
         // Verify setup
         assert_eq!(codebook.get_all_qual_codes().len(), 2, "Should have 2 codes initially");
 
         // Execute: Proper workflow - remove codes THEN file
-        let block_map = build_block_map(&[&test_file]);
+        let block_map = file_list.build_block_file_map();
         codebook.remove_codes_for_file(file_id, &block_map);
         file_list.remove_file(file_id).unwrap();
 
@@ -1042,21 +1043,22 @@ mod file_data_states {
     use super::*;
 
     #[test]
-    fn test_file_starts_empty() {
-        // Setup: Create new file
+    fn test_file_starts_loaded_after_import() {
+        // Setup: Create new file (simulating import with no content)
         let mut file_list = FileList::new();
-        let file_id = file_list.add_file("new.txt".to_string(), FileType::PlainText);
+        let file_id = add_test_file(&mut file_list, "new.txt");
         let file = file_list.file(file_id).unwrap();
 
-        // Assert: Should start in Empty state
-        assert!(file.blocks().is_none(), "New file should have no blocks (Empty state)");
+        // Assert: Should be in Loaded state (files are always imported with blocks)
+        assert!(file.blocks().is_some(), "Imported file should be in Loaded state");
+        assert_eq!(file.blocks().unwrap().len(), 0, "File imported with no content should have empty blocks");
     }
 
     #[test]
     fn test_set_data_state_to_loaded() {
         // Setup: Create file through FileList
         let mut file_list = FileList::new();
-        let file_id = file_list.add_file("test.txt".to_string(), FileType::PlainText);
+        let file_id = add_test_file(&mut file_list, "test.txt");
 
         let block1 = TextBlock::new(file_id, 0, "First block".to_string());
         let block2 = TextBlock::new(file_id, 1, "Second block".to_string());
@@ -1079,7 +1081,7 @@ mod file_data_states {
     fn test_set_data_state_to_modified() {
         // Setup: Create file with Loaded state
         let mut file_list = FileList::new();
-        let file_id = file_list.add_file("test.txt".to_string(), FileType::PlainText);
+        let file_id = add_test_file(&mut file_list, "test.txt");
 
         let block = TextBlock::new(file_id, 0, "Original".to_string());
         let file = file_list.file_mut(file_id).unwrap();
@@ -1101,7 +1103,7 @@ mod file_data_states {
     fn test_data_state_error_returns_none() {
         // Setup: Create file in Error state
         let mut file_list = FileList::new();
-        let file_id = file_list.add_file("error.txt".to_string(), FileType::PlainText);
+        let file_id = add_test_file(&mut file_list, "error.txt");
 
         let file = file_list.file_mut(file_id).unwrap();
         file.set_data_state(DataState::Error);
@@ -1115,7 +1117,7 @@ mod file_data_states {
     fn test_data_state_empty_returns_none() {
         // Setup: Create file and explicitly set to Empty
         let mut file_list = FileList::new();
-        let file_id = file_list.add_file("empty.txt".to_string(), FileType::PlainText);
+        let file_id = add_test_file(&mut file_list, "empty.txt");
 
         let file = file_list.file_mut(file_id).unwrap();
         file.set_data_state(DataState::Empty);
@@ -1129,7 +1131,7 @@ mod file_data_states {
     fn test_transition_from_loaded_to_empty() {
         // Setup: File with blocks
         let mut file_list = FileList::new();
-        let file_id = file_list.add_file("test.txt".to_string(), FileType::PlainText);
+        let file_id = add_test_file(&mut file_list, "test.txt");
 
         let block = TextBlock::new(file_id, 0, "Content".to_string());
         let file = file_list.file_mut(file_id).unwrap();
